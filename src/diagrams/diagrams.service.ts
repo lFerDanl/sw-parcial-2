@@ -82,9 +82,6 @@ export class DiagramsService {
     return this.diagramsRepository.save(diagram);
   }
 
-  // --------------------------------------
-  // Actualización parcial de elementos
-  // --------------------------------------
   async updateElement(diagramId: number, elementId: string, elementData: any, user: User) {
     const diagram = await this.findOne(diagramId, user);
     if (!diagram.content.elements) diagram.content.elements = {};
@@ -95,16 +92,10 @@ export class DiagramsService {
     return this.diagramsRepository.save(diagram);
   }
 
-  // --------------------------------------
-  // Mover elemento (solo posición)
-  // --------------------------------------
   async moveElement(diagramId: number, elementId: string, position: { x: number; y: number }, user: User) {
     return this.updateElement(diagramId, elementId, { position }, user);
   }
 
-  // --------------------------------------
-  // Agregar un atributo a una clase
-  // --------------------------------------
   async addAttribute(
     diagramId: number,
     classId: string,
@@ -122,9 +113,6 @@ export class DiagramsService {
     return this.diagramsRepository.save(diagram);
   }
 
-  // --------------------------------------
-  // Editar un atributo de una clase
-  // --------------------------------------
   async updateAttribute(
     diagramId: number,
     classId: string,
@@ -141,9 +129,6 @@ export class DiagramsService {
     return this.diagramsRepository.save(diagram);
   }
 
-  // --------------------------------------
-  // Eliminar un atributo de una clase
-  // --------------------------------------
   async removeAttribute(
     diagramId: number,
     classId: string,
@@ -158,9 +143,7 @@ export class DiagramsService {
     classElem.attributes.splice(attrIndex, 1);
     return this.diagramsRepository.save(diagram);
   }
-  // --------------------------------------
-  // Agregar una clase
-  // --------------------------------------
+
   async addClass(
     diagramId: number,
     classId: string,
@@ -176,9 +159,6 @@ export class DiagramsService {
     return this.diagramsRepository.save(diagram);
   }
 
-  // --------------------------------------
-  // Eliminar una clase
-  // --------------------------------------
   async removeClass(
     diagramId: number,
     classId: string,
@@ -203,9 +183,6 @@ export class DiagramsService {
     return this.diagramsRepository.save(diagram);
   }
 
-  // --------------------------------------
-  // Crear relación
-  // --------------------------------------
   async addRelation(
     diagramId: number,
     relationId: string,
@@ -221,9 +198,6 @@ export class DiagramsService {
     return this.diagramsRepository.save(diagram);
   }
 
-  // --------------------------------------
-  // Actualizar relación
-  // --------------------------------------
   async updateRelation(
     diagramId: number,
     relationId: string,
@@ -245,9 +219,6 @@ export class DiagramsService {
     return this.diagramsRepository.save(diagram);
   }
 
-  // --------------------------------------
-  // Eliminar relación
-  // --------------------------------------
   async removeRelation(diagramId: number, relationId: string, user: User) {
     const diagram = await this.findOne(diagramId, user);
     
@@ -265,39 +236,80 @@ export class DiagramsService {
     diagramId: number,
     prompt: string,
     user: User,
+    mode: 'replace' | 'merge' = 'merge', // ✅ Nuevo parámetro
   ): Promise<Diagram> {
     console.log('Generating diagram from prompt:', prompt);
     const diagram = await this.findOne(diagramId, user);
     
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY??'');
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? '');
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-  
-    const systemPrompt = this.buildDiagramPrompt(prompt);
-    
+
+    // ✅ Pasar el diagrama actual al prompt
+    const systemPrompt = this.buildDiagramPrompt(prompt, diagram.content);
+    console.log(systemPrompt);
     const result = await model.generateContent(systemPrompt);
     const text = result.response.text();
-  
+
     const jsonMatch = text.match(/```json\n([\s\S]*?)\n```/) || 
                       text.match(/{[\s\S]*}/);
     
     if (!jsonMatch) {
       throw new Error('No se pudo extraer JSON de la respuesta');
     }
-  
+
     const generatedContent = JSON.parse(
       jsonMatch[0].startsWith('{') ? jsonMatch[0] : jsonMatch[1]
     );
 
     console.log('Generated Diagram Content:', JSON.stringify(generatedContent, null, 2));
-  
-    diagram.content = generatedContent;
+
+    if (mode === 'replace') {
+      diagram.content = generatedContent;
+    } else {
+      diagram.content = this.mergeDiagramContent(diagram.content, generatedContent);
+    }
+
     return this.diagramsRepository.save(diagram);
   }
-  
-  private buildDiagramPrompt(userPrompt: string): string {
+
+  private mergeDiagramContent(existing: any, newContent: any): any {
+    return {
+      elements: {
+        ...(existing?.elements || {}),
+        ...(newContent?.elements || {}),
+      },
+      relations: {
+        ...(existing?.relations || {}),
+        ...(newContent?.relations || {}),
+      },
+    };
+  }
+
+  private buildDiagramPrompt(userPrompt: string, currentDiagram?: any): string {
+    let contextSection = '';
+    
+    if (currentDiagram && (currentDiagram.elements || currentDiagram.relations)) {
+      const existingClasses = Object.keys(currentDiagram.elements || {}).map(
+        id => currentDiagram.elements[id].name
+      ).join(', ');
+      
+      contextSection = `
+  DIAGRAMA ACTUAL:
+  Este es el diagrama actual: 
+  ${JSON.stringify(currentDiagram, null, 2)}
+
+  IMPORTANTE: 
+  - Si el usuario pide modificar/agregar a clases existentes, usa los mismos IDs que ya existen
+  - Si creas nuevas clases, genera IDs únicos que no colisionen
+  - Posiciona las nuevas clases cerca de las relacionadas
+  `;
+    }
+
     return `
-  Genera un diagrama de clases UML en formato JSON basado en: "${userPrompt}"
-  
+  ${contextSection}
+
+  Genera o modifica un diagrama de clases UML en formato JSON basado en: "${userPrompt}"
+
   El JSON debe tener esta estructura exacta:
   {
     "elements": {
@@ -305,7 +317,7 @@ export class DiagramsService {
         "name": "NombreClase",
         "position": { "x": número, "y": número },
         "attributes": [
-          { "name": "id", "type": "Long" },          // Siempre incluir ID
+          { "name": "id", "type": "Long" },
           { "name": "nombreAtributo", "type": "TipoDato" }
         ]
       }
@@ -323,17 +335,137 @@ export class DiagramsService {
       }
     }
   }
-  
+
   Reglas:
-  - Cada clase debe tener obligatoriamente un atributo "id" de tipo Long como clave primaria.
-  - Usa IDs únicos aleatorios (ej: "class1", "class2", "rel1")
+  - Cada clase debe tener obligatoriamente un atributo "id" de tipo Long como clave primaria
+  - Si modificas clases existentes, mantén sus IDs originales
+  - Para nuevas clases, usa IDs únicos aleatorios (ej: "class_${Date.now()}")
   - Posiciona las clases de forma organizada (separación de ~300px)
-  - Incluye atributos relevantes con tipos de datos apropiados
-  - Los tipos de datos de los atributos deben ser solo uno de los siguientes: String, Integer, Long, Double, Float, Boolean, Date, LocalDate, LocalDateTime, BigDecimal
+  - Los tipos de datos deben ser: String, Integer, Long, Double, Float, Boolean, Date, LocalDate, LocalDateTime, BigDecimal
   - Define relaciones lógicas entre clases
-  - Los vértices deben estar entre las clases conectadas
-  
+
   Responde SOLO con el JSON, sin texto adicional.
+  `;
+  } 
+  
+  async generateDiagramFromImage(
+    diagramId: number,
+    imageBuffer: Buffer,
+    mimeType: string,
+    additionalPrompt: string = '',
+    user: User,
+    mode: 'replace' | 'merge' = 'merge', // ✅ Agregar parámetro mode
+  ): Promise<Diagram> {
+    console.log('Generating diagram from image');
+    const diagram = await this.findOne(diagramId, user);
+    
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? '');
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+    const base64Image = imageBuffer.toString('base64');
+
+    const systemPrompt = this.buildDiagramPromptFromImage(additionalPrompt, diagram.content);
+    
+    const imagePart = {
+      inlineData: {
+        data: base64Image,
+        mimeType: mimeType,
+      },
+    };
+
+    const result = await model.generateContent([systemPrompt, imagePart]);
+    const text = result.response.text();
+
+    const jsonMatch = text.match(/```json\n([\s\S]*?)\n```/) || 
+                      text.match(/{[\s\S]*}/);
+    
+    if (!jsonMatch) {
+      throw new Error('No se pudo extraer JSON de la respuesta');
+    }
+
+    const generatedContent = JSON.parse(
+      jsonMatch[0].startsWith('{') ? jsonMatch[0] : jsonMatch[1]
+    );
+
+    console.log('Generated Diagram Content from Image:', JSON.stringify(generatedContent, null, 2));
+
+    if (mode === 'replace') {
+      diagram.content = generatedContent;
+    } else {
+      diagram.content = this.mergeDiagramContent(diagram.content, generatedContent);
+    }
+
+    return this.diagramsRepository.save(diagram);
+  }
+
+  private buildDiagramPromptFromImage(additionalContext: string, currentDiagram?: any): string {
+    let contextSection = '';
+    
+    if (currentDiagram && (currentDiagram.elements || currentDiagram.relations)) {
+      const existingClasses = Object.entries(currentDiagram.elements || {}).map(
+        ([id, elem]: any) => `${id}: ${elem.name}`
+      );
+      
+      const existingRelations = Object.entries(currentDiagram.relations || {}).map(
+        ([id, rel]: any) => `${rel.from} -> ${rel.to} (${rel.type})`
+      );
+      
+      contextSection = `
+  DIAGRAMA ACTUAL (Resumen):
+  ${JSON.stringify(currentDiagram, null, 2)}
+  
+  IMPORTANTE: 
+  - Si detectas clases que ya existen, usa los mismos IDs: ${Object.keys(currentDiagram.elements || {}).join(', ')}
+  - Si creas nuevas clases, genera IDs únicos con formato "class_TIMESTAMP"
+  - Posiciona las nuevas clases cerca de las relacionadas (alrededor de x:300-800, y:100-500)
+  `;
+    }
+  
+    return `
+  ${contextSection}
+  
+  Analiza la imagen proporcionada y genera un diagrama de clases UML en formato JSON.
+  ${additionalContext ? `\n\nContexto adicional: ${additionalContext}\n` : ''}
+  
+  La imagen puede contener:
+  - Un diagrama UML dibujado a mano o digital
+  - Tablas de base de datos
+  - Esquemas de entidades y relaciones
+  
+  FORMATO JSON REQUERIDO:
+  {
+    "elements": {
+      "classX": {
+        "name": "NombreClase",
+        "position": { "x": número, "y": número },
+        "attributes": [
+          { "name": "id", "type": "Long" },
+          { "name": "atributo", "type": "String|Integer|Long|Double|Boolean|LocalDate|LocalDateTime" }
+        ]
+      }
+    },
+    "relations": {
+      "relX": {
+        "from": "classId",
+        "to": "classId",
+        "type": "OneToMany|ManyToOne|ManyToMany|OneToOne|Inheritance|Aggregation|Composition",
+        "vertices": [{ "x": número, "y": número }],
+        "labels": [{ "position": 0.5, "text": "de nuevo el type" }],
+        "attrs": { "line": { "stroke": "#444", "strokeWidth": 2 } },
+        "router": { "name": "manhattan" },
+        "connector": { "name": "rounded" }
+      }
+    }
+  }
+  
+  REGLAS:
+  1. Cada clase DEBE tener atributo "id" tipo Long
+  2. Usa IDs únicos para nuevas clases: "class_${Date.now()}_${Math.random()}"
+  3. Posiciones: x entre 100-900, y entre 100-700, separación ~300px
+  4. Tipos válidos: String, Integer, Long, Double, Float, Boolean, Date, LocalDate, LocalDateTime, BigDecimal
+  5. Cardinalidades: 1:N=OneToMany, N:1=ManyToOne, N:N=ManyToMany, 1:1=OneToOne
+  
+  Responde SOLO con JSON válido, sin texto adicional.
   `;
   }
   

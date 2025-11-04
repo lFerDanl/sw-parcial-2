@@ -90,34 +90,91 @@ export class DiagramGateway implements OnGatewayInit, OnGatewayConnection, OnGat
   @SubscribeMessage('diagram:generateFromPrompt')
   async handleGenerateFromPrompt(
     client: Socket,
-    payload: { diagramId: number; prompt: string }
+    payload: { 
+      diagramId: number; 
+      prompt: string;
+      mode?: 'replace' | 'merge'; // ✅ Nuevo parámetro opcional
+    }
   ) {
-    const { diagramId, prompt } = payload;
+    const { diagramId, prompt, mode = 'merge' } = payload; // ✅ Default: merge
     const user = (client as any).user;
-
+  
     try {
-      // Generar el diagrama
+      // ✅ Pasar el modo al servicio
       const updatedDiagram = await this.diagramsService.generateDiagramFromPrompt(
         diagramId,
         prompt,
-        { id: user.sub } as any
+        { id: user.sub } as any,
+        mode // ✅ 'merge' o 'replace'
       );
-
-      // Emitir el nuevo contenido a todos los clientes conectados
+  
+      // Broadcast a TODOS los clientes en la sala
       this.server.to(`diagram:${diagramId}`).emit('diagram:generated', {
         content: updatedDiagram.content,
         generatedBy: client.id,
+        mode, // ✅ Informar el modo usado
       });
-
-      // También enviar al cliente que lo solicitó
+  
+      // También envía al cliente que lo solicitó
       client.emit('diagram:generated', {
         content: updatedDiagram.content,
         generatedBy: client.id,
+        mode,
+      });
+  
+    } catch (error) {
+      client.emit('diagram:generateError', {
+        error: error.message || 'Error al generar el diagrama'
+      });
+    }
+  }
+
+  // ---------------------------
+  // Generar diagrama desde imagen
+  // ---------------------------
+@SubscribeMessage('diagram:generateFromImage')
+  async handleGenerateFromImage(
+    client: Socket,
+    payload: { 
+      diagramId: number; 
+      imageData: string; // Base64
+      mimeType: string;
+      additionalPrompt?: string;
+      mode?: 'replace' | 'merge'; 
+    }
+  ) {
+    const { diagramId, imageData, mimeType, additionalPrompt = '', mode = 'merge' } = payload;
+    const user = (client as any).user;
+
+    try {
+      // Convertir base64 a buffer
+      const imageBuffer = Buffer.from(imageData, 'base64');
+
+      const updatedDiagram = await this.diagramsService.generateDiagramFromImage(
+        diagramId,
+        imageBuffer,
+        mimeType,
+        additionalPrompt,
+        { id: user.sub } as any,
+        mode 
+      );
+
+
+      this.server.to(`diagram:${diagramId}`).emit('diagram:generated', {
+        content: updatedDiagram.content,
+        generatedBy: client.id,
+        mode, 
+      });
+
+      client.emit('diagram:generated', {
+        content: updatedDiagram.content,
+        generatedBy: client.id,
+        mode,
       });
 
     } catch (error) {
       client.emit('diagram:generateError', {
-        error: error.message || 'Error al generar el diagrama'
+        error: error.message || 'Error al generar el diagrama desde imagen'
       });
     }
   }

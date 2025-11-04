@@ -13,7 +13,7 @@ export class UsersService {
   ) {}
 
   async create(createUserDto: CreateUserDto) {
-    return await this.usersRepository.save(createUserDto);
+    return await this.usersRepository.save(createUserDto); 
   }
 
   async findOneByEmail(email: string) {

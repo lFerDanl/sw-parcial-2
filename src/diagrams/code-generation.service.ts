@@ -143,6 +143,11 @@ export class CodeGenerationService {
       `${projectName}/QUICK_START.txt`,
       this.generateQuickStart(projectName)
     );
+
+    zip.file(
+      `${projectName}/postman_collection.json`,
+      this.generatePostmanCollection(projectName, content.elements)
+    );
     
     return await zip.generateAsync({ type: 'nodebuffer' });
   }
@@ -1791,5 +1796,186 @@ distributionUrl=https://repo.maven.apache.org/maven2/org/apache/maven/apache-mav
 ¿Listo? Ejecuta setup.bat (Windows) o ./setup.sh (Linux/Mac) para comenzar! 🚀
 
 `;
+  }
+
+  /**
+   * Genera colección de Postman con todos los endpoints
+   */
+  private generatePostmanCollection(projectName: string, elements: Record<string, ClassElement>): string {
+    const collectionName = `${projectName} API`;
+    const baseUrl = 'http://localhost:8080/api';
+    
+    const items: any[] = [];
+    
+    // Generar carpeta y requests para cada entidad
+    for (const [classId, classData] of Object.entries(elements)) {
+      const className = classData.name;
+      const endpoint = this.toKebabCase(className);
+      const varName = this.toLowerCamelCase(className);
+      
+      // Crear body de ejemplo basado en atributos
+      const exampleBody: any = {};
+      for (const attr of classData.attributes) {
+        if (attr.name.toLowerCase() !== 'id') {
+          exampleBody[attr.name] = this.getExampleValue(attr.type, attr.name);
+        }
+      }
+      
+      const folder = {
+        name: className,
+        item: [
+          // GET All
+          {
+            name: `Get All ${className}s`,
+            request: {
+              method: 'GET',
+              header: [],
+              url: {
+                raw: `{{base_url}}/${endpoint}`,
+                host: ['{{base_url}}'],
+                path: [endpoint]
+              }
+            },
+            response: []
+          },
+          // GET By ID
+          {
+            name: `Get ${className} by ID`,
+            request: {
+              method: 'GET',
+              header: [],
+              url: {
+                raw: `{{base_url}}/${endpoint}/1`,
+                host: ['{{base_url}}'],
+                path: [endpoint, '1']
+              }
+            },
+            response: []
+          },
+          // POST Create
+          {
+            name: `Create ${className}`,
+            request: {
+              method: 'POST',
+              header: [
+                {
+                  key: 'Content-Type',
+                  value: 'application/json'
+                }
+              ],
+              body: {
+                mode: 'raw',
+                raw: JSON.stringify(exampleBody, null, 2)
+              },
+              url: {
+                raw: `{{base_url}}/${endpoint}`,
+                host: ['{{base_url}}'],
+                path: [endpoint]
+              }
+            },
+            response: []
+          },
+          // PUT Update
+          {
+            name: `Update ${className}`,
+            request: {
+              method: 'PUT',
+              header: [
+                {
+                  key: 'Content-Type',
+                  value: 'application/json'
+                }
+              ],
+              body: {
+                mode: 'raw',
+                raw: JSON.stringify({ id: 1, ...exampleBody }, null, 2)
+              },
+              url: {
+                raw: `{{base_url}}/${endpoint}/1`,
+                host: ['{{base_url}}'],
+                path: [endpoint, '1']
+              }
+            },
+            response: []
+          },
+          // DELETE
+          {
+            name: `Delete ${className}`,
+            request: {
+              method: 'DELETE',
+              header: [],
+              url: {
+                raw: `{{base_url}}/${endpoint}/1`,
+                host: ['{{base_url}}'],
+                path: [endpoint, '1']
+              }
+            },
+            response: []
+          }
+        ]
+      };
+      
+      items.push(folder);
+    }
+    
+    const collection = {
+      info: {
+        name: collectionName,
+        description: `API collection for ${projectName} generated from UML diagram`,
+        schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json'
+      },
+      variable: [
+        {
+          key: 'base_url',
+          value: baseUrl,
+          type: 'string'
+        }
+      ],
+      item: items
+    };
+    
+    return JSON.stringify(collection, null, 2);
+  }
+
+  /**
+   * Genera valores de ejemplo según el tipo de dato
+   */
+  private getExampleValue(type: string, fieldName: string): any {
+    const lowerFieldName = fieldName.toLowerCase();
+    
+    // Valores específicos según nombre de campo
+    if (lowerFieldName.includes('email')) return 'user@example.com';
+    if (lowerFieldName.includes('phone')) return '+1234567890';
+    if (lowerFieldName.includes('name')) return 'John Doe';
+    if (lowerFieldName.includes('username')) return 'johndoe';
+    if (lowerFieldName.includes('password')) return 'securePassword123';
+    if (lowerFieldName.includes('age')) return 25;
+    if (lowerFieldName.includes('price') || lowerFieldName.includes('amount')) return 99.99;
+    if (lowerFieldName.includes('active') || lowerFieldName.includes('enabled')) return true;
+    if (lowerFieldName.includes('date')) return '2024-01-15';
+    if (lowerFieldName.includes('time')) return '2024-01-15T10:30:00';
+    
+    // Valores por defecto según tipo
+    switch (type) {
+      case 'String':
+        return 'example text';
+      case 'Integer':
+      case 'Long':
+        return 100;
+      case 'Double':
+      case 'Float':
+      case 'BigDecimal':
+        return 99.99;
+      case 'Boolean':
+        return true;
+      case 'Date':
+        return '2024-01-15';
+      case 'LocalDate':
+        return '2024-01-15';
+      case 'LocalDateTime':
+        return '2024-01-15T10:30:00';
+      default:
+        return 'example value';
+    }
   }
 }
