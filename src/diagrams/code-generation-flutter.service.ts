@@ -46,21 +46,30 @@ export class CodeGenerationFlutterService {
   ): Promise<Buffer> {
     const zip = new JSZip();
     
+    // Crear carpeta raíz con el nombre del proyecto
+    const projectFolder = zip.folder(this.toSnakeCase(projectName))!;
+    
     // Análisis de relaciones
     const relationshipMap: Map<string, RelationshipInfo[]> = this.analyzeRelationships(diagramContent);
     const manyToManyAssignments: any[] = this.detectManyToManyAssignments(diagramContent);
     
     // Estructura del proyecto Flutter
-    const libFolder = zip.folder('lib')!;
+    const libFolder = projectFolder.folder('lib')!;
     const modelsFolder = libFolder.folder('models')!;
     const servicesFolder = libFolder.folder('services')!;
     const screensFolder = libFolder.folder('screens')!;
     const formsFolder = screensFolder.folder('forms')!;
     const widgetsFolder = libFolder.folder('widgets')!;
     
-    // Archivos base
-    zip.file('.env', this.generateEnvFile());
-    zip.file('pubspec.yaml', this.generatePubspecYaml(projectName));
+    // Archivos base en la raíz del proyecto
+    projectFolder.file('.env', this.generateEnvFile());
+    projectFolder.file('pubspec.yaml', this.generatePubspecYaml(projectName));
+    projectFolder.file('.gitignore', this.generateGitignore());
+    projectFolder.file('.metadata', this.generateMetadata());
+    projectFolder.file('analysis_options.yaml', this.generateAnalysisOptions());
+    projectFolder.file('README.md', this.generateReadme(projectName));
+    
+    // Archivos lib
     libFolder.file('main.dart', this.generateMainDart(diagramContent));
     libFolder.file('config.dart', this.generateConfigDart());
     
@@ -215,7 +224,7 @@ publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: ^3.7.2
 
 dependencies:
   flutter:
@@ -225,26 +234,220 @@ dependencies:
   provider: ^6.1.1
   
   # HTTP & API
-  http: ^1.1.0
+  http: ^1.2.0
   flutter_dotenv: ^5.1.0
   
   # UI Components
-  cupertino_icons: ^1.0.6
+  cupertino_icons: ^1.0.8
   flutter_spinkit: ^5.2.0
-  
-  # Forms
-  flutter_form_builder: ^9.1.1
-  form_builder_validators: ^9.1.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^3.0.1
+  flutter_lints: ^5.0.0
 
 flutter:
   uses-material-design: true
   assets:
     - .env
+`;
+  }
+
+  private generateGitignore(): string {
+    return `# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+`;
+  }
+
+  private generateMetadata(): string {
+    return `# This file tracks properties of this Flutter project.
+# Used by Flutter tool to assess capabilities and perform upgrades etc.
+#
+# This file should be version controlled and should not be manually edited.
+
+version:
+  revision: "ea121f8859e4b13e47a8f845e4586164519588bc"
+  channel: "stable"
+
+project_type: app
+
+# Tracks metadata for the flutter migrate command
+migration:
+  platforms:
+    - platform: root
+      create_revision: ea121f8859e4b13e47a8f845e4586164519588bc
+      base_revision: ea121f8859e4b13e47a8f845e4586164519588bc
+    - platform: android
+      create_revision: ea121f8859e4b13e47a8f845e4586164519588bc
+      base_revision: ea121f8859e4b13e47a8f845e4586164519588bc
+    - platform: ios
+      create_revision: ea121f8859e4b13e47a8f845e4586164519588bc
+      base_revision: ea121f8859e4b13e47a8f845e4586164519588bc
+    - platform: linux
+      create_revision: ea121f8859e4b13e47a8f845e4586164519588bc
+      base_revision: ea121f8859e4b13e47a8f845e4586164519588bc
+    - platform: macos
+      create_revision: ea121f8859e4b13e47a8f845e4586164519588bc
+      base_revision: ea121f8859e4b13e47a8f845e4586164519588bc
+    - platform: web
+      create_revision: ea121f8859e4b13e47a8f845e4586164519588bc
+      base_revision: ea121f8859e4b13e47a8f845e4586164519588bc
+    - platform: windows
+      create_revision: ea121f8859e4b13e47a8f845e4586164519588bc
+      base_revision: ea121f8859e4b13e47a8f845e4586164519588bc
+
+  # User provided section
+
+  # List of Local paths (relative to this file) that should be
+  # ignored by the migrate tool.
+  #
+  # Files that are not part of the templates will be ignored by default.
+  unmanaged_files:
+    - 'lib/main.dart'
+    - 'ios/Runner.xcodeproj/project.pbxproj'
+`;
+  }
+
+  private generateAnalysisOptions(): string {
+    return `# This file configures the analyzer, which statically analyzes Dart code to
+# check for errors, warnings, and lints.
+#
+# The issues identified by the analyzer are surfaced in the UI of Dart-enabled
+# IDEs (https://dart.dev/tools#ides-and-editors). The analyzer can also be
+# invoked from the command line by running \`flutter analyze\`.
+
+# The following line activates a set of recommended lints for Flutter apps,
+# packages, and plugins designed to encourage good coding practices.
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  # The lint rules applied to this project can be customized in the
+  # section below to disable rules from the \`package:flutter_lints/flutter.yaml\`
+  # included above or to enable additional rules. A list of all available lints
+  # and their documentation is published at https://dart.dev/lints.
+  #
+  # Instead of disabling a lint rule for the entire project in the
+  # section below, it can also be suppressed for a single line of code
+  # or a specific dart file by using the \`// ignore: name_of_lint\` and
+  # \`// ignore_for_file: name_of_lint\` syntax on the line or in the file
+  # producing the lint.
+  rules:
+    # avoid_print: false  # Uncomment to disable the \`avoid_print\` rule
+    # prefer_single_quotes: true  # Uncomment to enable the \`prefer_single_quotes\` rule
+
+# Additional information about this file can be found at
+# https://dart.dev/guides/language/analysis-options
+`;
+  }
+
+  private generateReadme(projectName: string): string {
+    return `# ${projectName}
+
+A Flutter application generated from UML diagram.
+
+## Getting Started
+
+This project was automatically generated and includes:
+
+- **Models**: Data classes with JSON serialization
+- **Services**: HTTP client services with Provider state management
+- **Screens**: CRUD forms for all entities
+- **Widgets**: Reusable UI components
+
+## Prerequisites
+
+- Flutter SDK (>=3.7.2)
+- Dart SDK
+- A running backend API
+
+## Setup
+
+1. Install dependencies:
+\`\`\`bash
+flutter pub get
+\`\`\`
+
+2. Configure your API endpoint in \`.env\`:
+\`\`\`
+API_BASE_URL=http://your-api-url/api
+API_TIMEOUT=30000
+\`\`\`
+
+3. Run the app:
+\`\`\`bash
+flutter run
+\`\`\`
+
+## Project Structure
+
+\`\`\`
+lib/
+├── models/          # Data models
+├── services/        # API services
+├── screens/         # UI screens
+│   └── forms/       # CRUD forms
+├── widgets/         # Reusable widgets
+├── config.dart      # App configuration
+└── main.dart        # Entry point
+\`\`\`
+
+## Features
+
+- State management with Provider
+- RESTful API integration
+- Form validation
+- Error handling
+- Loading states
+- Material Design 3 UI
+
+## Resources
+
+- [Flutter Documentation](https://docs.flutter.dev/)
+- [Dart Documentation](https://dart.dev/guides)
+- [Provider Package](https://pub.dev/packages/provider)
 `;
   }
 
@@ -297,14 +500,36 @@ ${providers}
         title: 'Generated App',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xFF2196F3),
+            brightness: Brightness.light,
+          ),
           useMaterial3: true,
+          appBarTheme: const AppBarTheme(
+            centerTitle: true,
+            elevation: 0,
+          ),
+          cardTheme: CardThemeData(
+            elevation: 2,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
           inputDecorationTheme: InputDecorationTheme(
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
             ),
             filled: true,
             fillColor: Colors.grey[50],
+          ),
+          elevatedButtonTheme: ElevatedButtonThemeData(
+            style: ElevatedButton.styleFrom(
+              elevation: 2,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
           ),
         ),
         home: const HomeScreen(),
@@ -320,13 +545,18 @@ ${providers}
       .map(e => `import 'forms/${this.toSnakeCase(e.name)}_form.dart';`)
       .join('\n');
     
-    const tiles = Object.values(diagramContent.elements)
-      .map(e => `          _buildNavigationTile(
-            context,
-            '${e.name}',
-            Icons.class_,
-            ${e.name}FormScreen(),
-          ),`)
+    const menuItems = Object.values(diagramContent.elements)
+      .map(e => `            ListTile(
+              leading: Icon(Icons.table_chart, color: Theme.of(context).primaryColor),
+              title: Text('${e.name}'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => ${e.name}FormScreen()),
+                );
+              },
+            ),`)
       .join('\n');
     
     return `import 'package:flutter/material.dart';
@@ -339,19 +569,159 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Entity Management'),
+        title: const Text('Dashboard'),
         centerTitle: true,
-        elevation: 0,
+        elevation: 2,
+        backgroundColor: Theme.of(context).primaryColor,
+        foregroundColor: Colors.white,
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: GridView.count(
-            crossAxisCount: 2,
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 16,
+      drawer: Drawer(
+        child: Column(
+          children: [
+            DrawerHeader(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Theme.of(context).primaryColor,
+                    Theme.of(context).primaryColor.withOpacity(0.7),
+                  ],
+                ),
+              ),
+              child: const Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.dashboard, size: 48, color: Colors.white),
+                  SizedBox(height: 12),
+                  Text(
+                    'Entity Management',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'Generated App',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Text(
+                      'Entities',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey[600],
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                  ),
+${menuItems}
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: Icon(Icons.info_outline, color: Colors.grey[600]),
+              title: const Text('About'),
+              onTap: () {
+                Navigator.pop(context);
+                _showAboutDialog(context);
+              },
+            ),
+          ],
+        ),
+      ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Theme.of(context).primaryColor.withOpacity(0.05),
+              Theme.of(context).primaryColor.withOpacity(0.1),
+            ],
+          ),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-${tiles}
+              Icon(
+                Icons.dashboard_customize,
+                size: 120,
+                color: Theme.of(context).primaryColor.withOpacity(0.3),
+              ),
+              const SizedBox(height: 32),
+              Text(
+                'Welcome to',
+                style: TextStyle(
+                  fontSize: 24,
+                  color: Colors.grey[600],
+                  fontWeight: FontWeight.w300,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Entity Management',
+                style: TextStyle(
+                  fontSize: 48,
+                  fontWeight: FontWeight.bold,
+                  color: Theme.of(context).primaryColor,
+                  letterSpacing: -1,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Select an entity from the menu to get started',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey[600],
+                ),
+              ),
+              const SizedBox(height: 48),
+              Card(
+                elevation: 0,
+                color: Theme.of(context).primaryColor.withOpacity(0.1),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.menu,
+                        color: Theme.of(context).primaryColor,
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Open the menu to navigate',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Theme.of(context).primaryColor,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -359,36 +729,49 @@ ${tiles}
     );
   }
 
-  Widget _buildNavigationTile(
-    BuildContext context,
-    String title,
-    IconData icon,
-    Widget destination,
-  ) {
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: InkWell(
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => destination),
-        ),
-        borderRadius: BorderRadius.circular(16),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+  void _showAboutDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
           children: [
-            Icon(icon, size: 48, color: Theme.of(context).primaryColor),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-              textAlign: TextAlign.center,
-            ),
+            Icon(Icons.info_outline, color: Colors.blue),
+            SizedBox(width: 12),
+            Text('About'),
           ],
         ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Generated Flutter Application',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            SizedBox(height: 8),
+            Text('Version 1.0.0'),
+            SizedBox(height: 16),
+            Text(
+              'This application was automatically generated from a UML diagram.',
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Features:',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 4),
+            Text('• CRUD operations for all entities'),
+            Text('• RESTful API integration'),
+            Text('• State management with Provider'),
+            Text('• Form validation'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
       ),
     );
   }
@@ -593,8 +976,6 @@ class ${className}Service extends ChangeNotifier {
 `;
   }
 
-  // Continuará en el siguiente artefacto...
-  
   private toSnakeCase(str: string): string {
     return str.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
   }

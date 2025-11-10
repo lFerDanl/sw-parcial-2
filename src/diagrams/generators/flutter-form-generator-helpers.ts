@@ -211,13 +211,15 @@ interface Attribute {
     }
   
     Future<void> _loadData() async {
-      final ${this.toCamelCase(classA)}Service = Provider.of<${classA}Service>(context, listen: false);
-      final ${this.toCamelCase(classB)}Service = Provider.of<${classB}Service>(context, listen: false);
-      
-      await Future.wait([
-        ${this.toCamelCase(classA)}Service.fetchAll(),
-        ${this.toCamelCase(classB)}Service.fetchAll(),
-      ]);
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        final ${this.toCamelCase(classA)}Service = Provider.of<${classA}Service>(context, listen: false);
+        final ${this.toCamelCase(classB)}Service = Provider.of<${classB}Service>(context, listen: false);
+        
+        await Future.wait([
+          ${this.toCamelCase(classA)}Service.fetchAll(),
+          ${this.toCamelCase(classB)}Service.fetchAll(),
+        ]);
+      });
     }
   
     @override
@@ -408,7 +410,7 @@ interface Attribute {
   
     static generateFKServiceLoads(fkRelationships: RelationshipInfo[]): string {
       return fkRelationships
-        .map(rel => `    Provider.of<${rel.targetClass}Service>(context, listen: false).fetchAll();`)
+        .map(rel => `        await Provider.of<${rel.targetClass}Service>(context, listen: false).fetchAll();`)
         .join('\n');
     }
   
@@ -645,7 +647,7 @@ interface Attribute {
     }
   
     private static getDisplayField(classElement: ClassElement): string {
-      const preferredFields = ['name', 'title', 'description', 'email'];
+      const preferredFields = ['name', 'nombre', 'title', 'titulo', 'description', 'email'];
       
       for (const preferred of preferredFields) {
         const found = classElement.attributes.find(attr => 
