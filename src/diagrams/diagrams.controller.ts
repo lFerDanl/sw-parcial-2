@@ -25,7 +25,7 @@ export class DiagramsController {
   }
 
   @Get()
-  findAll(@ActiveUser() user: ActiveUserInterface) {
+  findAllbyUser(@ActiveUser() user: ActiveUserInterface) {
     return this.diagramsService.findAllByUser(user.sub);
   }
 
@@ -64,20 +64,6 @@ export class DiagramsController {
     return this.diagramsService.shareDiagram(id, userId, { id: user.sub } as any);
   }
 
-  @Post(':id/generate-from-prompt')
-  async generateFromPrompt(
-    @Param('id') id: number,
-    @Body() body: { prompt: string },
-    @ActiveUser() user: ActiveUserInterface,
-  ) {
-    console.log('Generating diagram from prompt Controller:', body.prompt);
-    return this.diagramsService.generateDiagramFromPrompt(
-      id, 
-      body.prompt, 
-      { id: user.sub } as any
-    );
-  }
-
   @Post(':id/generate-code')
   @ApiQuery({ name: 'projectName', required: false })
   @ApiQuery({ name: 'basePackage', required: false })
@@ -104,6 +90,38 @@ export class DiagramsController {
     });
 
     res.send(zipBuffer);
+  }
+
+  @Post(':id/generate-flutter')
+  @ApiQuery({ name: 'projectName', required: false, description: 'Nombre del proyecto Flutter' })
+  @ApiQuery({ name: 'basePackage', required: false, description: 'Paquete base (ej: com.example.app)' })
+  async generateFlutterCode(
+    @Param('id') id: number,
+    @Query('projectName') projectName: string,
+    @Query('basePackage') basePackage: string,
+    @ActiveUser() user: ActiveUserInterface,
+    @Res() res: Response,
+  ) {
+    try {
+      const zipBuffer = await this.diagramsService.generateFlutterCode(
+        id,
+        { id: user.sub } as any,
+        projectName,
+        basePackage
+      );
+
+      const filename = projectName || `diagram-${id}-flutter`;
+      
+      res.set({
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename="${filename}.zip"`,
+        'Content-Length': zipBuffer.length,
+      });
+
+      res.send(zipBuffer);
+    } catch (error) {
+      throw new Error(`Error generating Flutter code: ${error.message}`);
+    }
   }
 
 }

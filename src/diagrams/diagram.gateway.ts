@@ -16,6 +16,8 @@ type RoomId = string;
 @WebSocketGateway({
   cors: { origin: true, credentials: true },
   path: '/socket.io',
+  pingTimeout: 60000, 
+  pingInterval: 25000,
 })
 export class DiagramGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   constructor(
@@ -53,16 +55,12 @@ export class DiagramGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     const { diagramId } = payload;
     const user = (client as any).user;
 
-    // Traer diagrama de DB
     const diagram: Diagram = await this.diagramsService.findOne(diagramId, { id: user.sub } as any);
 
     client.join(`diagram:${diagramId}`);
     console.log(`Client ${client.id} joined diagram room ${diagramId}`);
 
-    // Enviar estado completo actual del diagrama al cliente
     client.emit('diagram:init', { diagram: diagram.content });
-
-    // Notificar a otros usuarios que un nuevo usuario se unió
     client.to(`diagram:${diagramId}`).emit('userJoined', { clientId: client.id, user });
   }
 
@@ -74,10 +72,8 @@ export class DiagramGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     const { diagramId, content, save } = payload;
     const room = `diagram:${diagramId}`;
 
-    // Emitir cambio a todos excepto el que lo envió
     client.to(room).emit('diagram:update', { clientId: client.id, content });
 
-    // Persistir en DB si save = true
     if (save) {
       const user = (client as any).user;
       await this.diagramsService.update(diagramId, { content }, { id: user.sub } as any);
@@ -85,7 +81,7 @@ export class DiagramGateway implements OnGatewayInit, OnGatewayConnection, OnGat
   }
 
   // ---------------------------
-  // Generar diagrama desde prompt
+  // ✅ SOLUCIÓN: Generar diagrama desde prompt (patrón async)
   // ---------------------------
   @SubscribeMessage('diagram:generateFromPrompt')
   async handleGenerateFromPrompt(
@@ -93,51 +89,83 @@ export class DiagramGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     payload: { 
       diagramId: number; 
       prompt: string;
-      mode?: 'replace' | 'merge'; // ✅ Nuevo parámetro opcional
+      mode?: 'replace' | 'merge';
     }
   ) {
-    const { diagramId, prompt, mode = 'merge' } = payload; // ✅ Default: merge
+    const { diagramId, prompt, mode = 'merge' } = payload;
     const user = (client as any).user;
+    
+    // ✅ 1. Responder inmediatamente con ACK
+    client.emit('diagram:generating', {
+      message: 'Generando diagrama...',
+      status: 'processing'
+    });
   
+    // ✅ 2. Procesar de forma asíncrona SIN await en el handler
+    this.processGenerateFromPrompt(client, diagramId, prompt, mode, user)
+      .catch(error => {
+        console.error('Error generating diagram:', error);
+        client.emit('diagram:generateError', {
+          error: error.message || 'Error al generar el diagrama'
+        });
+      });
+    
+    // ✅ 3. El handler termina inmediatamente
+  }
+
+  // ✅ Método auxiliar que procesa en background
+  private async processGenerateFromPrompt(
+    client: Socket,
+    diagramId: number,
+    prompt: string,
+    mode: 'replace' | 'merge',
+    user: any
+  ) {
     try {
-      // ✅ Pasar el modo al servicio
+      // Emitir progreso cada 10 segundos mientras se genera
+      const progressInterval = setInterval(() => {
+        client.emit('diagram:generating', {
+          message: 'Aún generando, esto puede tomar hasta 30 segundos...',
+          status: 'processing'
+        });
+      }, 10000);
+
       const updatedDiagram = await this.diagramsService.generateDiagramFromPrompt(
         diagramId,
         prompt,
         { id: user.sub } as any,
-        mode // ✅ 'merge' o 'replace'
+        mode
       );
-  
+
+      clearInterval(progressInterval);
+
       // Broadcast a TODOS los clientes en la sala
       this.server.to(`diagram:${diagramId}`).emit('diagram:generated', {
         content: updatedDiagram.content,
         generatedBy: client.id,
-        mode, // ✅ Informar el modo usado
+        mode,
       });
-  
-      // También envía al cliente que lo solicitó
+
       client.emit('diagram:generated', {
         content: updatedDiagram.content,
         generatedBy: client.id,
         mode,
       });
-  
+
     } catch (error) {
-      client.emit('diagram:generateError', {
-        error: error.message || 'Error al generar el diagrama'
-      });
+      throw error; // Se captura en el catch del handler principal
     }
   }
 
   // ---------------------------
-  // Generar diagrama desde imagen
+  // ✅ SOLUCIÓN: Generar diagrama desde imagen (patrón async)
   // ---------------------------
-@SubscribeMessage('diagram:generateFromImage')
+  @SubscribeMessage('diagram:generateFromImage')
   async handleGenerateFromImage(
     client: Socket,
     payload: { 
       diagramId: number; 
-      imageData: string; // Base64
+      imageData: string;
       mimeType: string;
       additionalPrompt?: string;
       mode?: 'replace' | 'merge'; 
@@ -146,8 +174,40 @@ export class DiagramGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     const { diagramId, imageData, mimeType, additionalPrompt = '', mode = 'merge' } = payload;
     const user = (client as any).user;
 
+    // ✅ 1. Responder inmediatamente con ACK
+    client.emit('diagram:generating', {
+      message: 'Analizando imagen y generando diagrama...',
+      status: 'processing'
+    });
+
+    // ✅ 2. Procesar de forma asíncrona
+    this.processGenerateFromImage(client, diagramId, imageData, mimeType, additionalPrompt, mode, user)
+      .catch(error => {
+        console.error('Error generating diagram from image:', error);
+        client.emit('diagram:generateError', {
+          error: error.message || 'Error al generar el diagrama desde imagen'
+        });
+      });
+  }
+
+  // ✅ Método auxiliar para procesamiento en background
+  private async processGenerateFromImage(
+    client: Socket,
+    diagramId: number,
+    imageData: string,
+    mimeType: string,
+    additionalPrompt: string,
+    mode: 'replace' | 'merge',
+    user: any
+  ) {
     try {
-      // Convertir base64 a buffer
+      const progressInterval = setInterval(() => {
+        client.emit('diagram:generating', {
+          message: 'Procesando imagen, esto puede tomar hasta 30 segundos...',
+          status: 'processing'
+        });
+      }, 10000);
+
       const imageBuffer = Buffer.from(imageData, 'base64');
 
       const updatedDiagram = await this.diagramsService.generateDiagramFromImage(
@@ -159,6 +219,7 @@ export class DiagramGateway implements OnGatewayInit, OnGatewayConnection, OnGat
         mode 
       );
 
+      clearInterval(progressInterval);
 
       this.server.to(`diagram:${diagramId}`).emit('diagram:generated', {
         content: updatedDiagram.content,
@@ -173,9 +234,7 @@ export class DiagramGateway implements OnGatewayInit, OnGatewayConnection, OnGat
       });
 
     } catch (error) {
-      client.emit('diagram:generateError', {
-        error: error.message || 'Error al generar el diagrama desde imagen'
-      });
+      throw error;
     }
   }
 
@@ -183,21 +242,17 @@ export class DiagramGateway implements OnGatewayInit, OnGatewayConnection, OnGat
   // Movimiento de elementos en tiempo real
   // ---------------------------
 
-
   @SubscribeMessage('element:moving')
   handleElementMoving(client: Socket, payload: { diagramId: number; elementId: string; position: { x: number; y: number } }) {
     const { diagramId, elementId, position } = payload;
-    // Emitir a todos menos el que lo envía
     client.to(`diagram:${diagramId}`).emit('element:moving', { elementId, position });
   }
 
   @SubscribeMessage('element:moved')
   async handleElementMoved(client: Socket, payload: { diagramId: number; elementId: string; position: { x: number; y: number } }) {
     const { diagramId, elementId, position } = payload;
-    // Emitir posición final a todos menos el que lo envía
     client.to(`diagram:${diagramId}`).emit('element:moved', { elementId, position, isFinal: true });
 
-    // Persistir posición final en DB
     const user = (client as any).user;
     const diagram = await this.diagramsService.findOne(diagramId, { id: user.sub } as any);
     if (!diagram.content.elements) diagram.content.elements = {};
@@ -205,7 +260,6 @@ export class DiagramGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     diagram.content.elements[elementId].position = position;
     await this.diagramsService.update(diagramId, { content: diagram.content }, { id: user.sub } as any);
   }
-
 
   // ---------------------------
   // Cursor en tiempo real
@@ -225,7 +279,6 @@ export class DiagramGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     const user = (client as any).user;
     await this.diagramsService.addAttribute(payload.diagramId, payload.classId, payload.attribute, { id: user.sub } as any);
 
-    // Emitir cambio a otros clientes en la sala
     client.to(`diagram:${payload.diagramId}`).emit('attribute:add', {
       clientId: client.id,
       classId: payload.classId,
@@ -279,13 +332,11 @@ export class DiagramGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     const { diagramId, classId, newData } = payload;
     const user = (client as any).user;
 
-    // Actualizar en la DB
     const diagram = await this.diagramsService.findOne(diagramId, { id: user.sub } as any);
     if (!diagram.content.elements[classId]) diagram.content.elements[classId] = {};
     diagram.content.elements[classId].name = newData.name || diagram.content.elements[classId].name;
     await this.diagramsService.update(diagramId, { content: diagram.content }, { id: user.sub } as any);
 
-    // Emitir cambio a los demás usuarios
     client.to(`diagram:${diagramId}`).emit('class:update', {
       clientId: client.id,
       classId,
@@ -332,10 +383,9 @@ export class DiagramGateway implements OnGatewayInit, OnGatewayConnection, OnGat
     client.to(`diagram:${payload.diagramId}`).emit('relation:add', {
       clientId: client.id,
       relationId: payload.relationId,
-      data: payload.data, // ahora incluye vertices, labels, attrs, router, connector si existen
+      data: payload.data,
     });
   }
-  
 
   @SubscribeMessage('relation:update')
   async handleUpdateRelation(
@@ -365,44 +415,36 @@ export class DiagramGateway implements OnGatewayInit, OnGatewayConnection, OnGat
         { id: user.sub } as any
       );
   
-      // Solo emitir si se actualizó exitosamente
       client.to(`diagram:${payload.diagramId}`).emit('relation:update', {
         clientId: client.id,
         relationId: payload.relationId,
         data: payload.data,
       });
     } catch (error) {
-      // ✅ Log pero no crashear
       console.warn(`Could not update relation ${payload.relationId}:`, error.message);
-      // No emitir error al cliente
     }
   }
 
-@SubscribeMessage('relation:remove')
-async handleRemoveRelation(
-  client: Socket, 
-  payload: { diagramId: number; relationId: string }
-) {
-  const user = (client as any).user;
-  
-  try {
-    await this.diagramsService.removeRelation(
-      payload.diagramId, 
-      payload.relationId, 
-      { id: user.sub } as any
-    );
+  @SubscribeMessage('relation:remove')
+  async handleRemoveRelation(
+    client: Socket, 
+    payload: { diagramId: number; relationId: string }
+  ) {
+    const user = (client as any).user;
+    
+    try {
+      await this.diagramsService.removeRelation(
+        payload.diagramId, 
+        payload.relationId, 
+        { id: user.sub } as any
+      );
 
-    // Solo emitir si se eliminó exitosamente
-    client.to(`diagram:${payload.diagramId}`).emit('relation:remove', {
-      clientId: client.id,
-      relationId: payload.relationId,
-    });
-  } catch (error) {
-    // ✅ Log pero no crashear
-    console.warn(`Could not remove relation ${payload.relationId}:`, error.message);
-    // No emitir error al cliente
+      client.to(`diagram:${payload.diagramId}`).emit('relation:remove', {
+        clientId: client.id,
+        relationId: payload.relationId,
+      });
+    } catch (error) {
+      console.warn(`Could not remove relation ${payload.relationId}:`, error.message);
+    }
   }
-}
-
-
 }

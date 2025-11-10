@@ -227,11 +227,13 @@ export class CodeGenerationService {
 
         if (isSource) {
         const targetClass = this.getClassNameById(relation.to, relations);
+        const sourceClass = this.getClassNameById(relation.from, relations);
         const relationField = this.generateRelationField(
             relation.type,
             targetClass,
             true,
-            imports
+            imports,
+            sourceClass
         );
         relationFields.push(relationField);
         }
@@ -297,7 +299,8 @@ ${relationFields.join('\n\n')}
     relationType: string,
     targetClass: string,
     isOwner: boolean,
-    imports: Set<string>
+    imports: Set<string>,
+    sourceClass?: string
   ): string {
     const fieldName = this.toLowerCamelCase(targetClass);
     
@@ -314,7 +317,7 @@ ${relationFields.join('\n\n')}
         
       case 'OneToMany':
         imports.add('import java.util.List;');
-        return `    @OneToMany(mappedBy = "${this.toLowerCamelCase(targetClass)}", cascade = CascadeType.ALL, orphanRemoval = true)
+        return `    @OneToMany(mappedBy = "${this.toLowerCamelCase(sourceClass || "")}", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<${targetClass}> ${fieldName}List = new ArrayList<>();`;
         
       case 'ManyToOne':

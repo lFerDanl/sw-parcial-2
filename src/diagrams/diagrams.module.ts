@@ -7,11 +7,12 @@ import { Diagram } from './entities/diagram.entity';
 import { User } from 'src/users/entities/user.entity';
 import { AuthModule } from 'src/auth/auth.module';
 import { CodeGenerationService } from './code-generation.service';
+import { CodeGenerationFlutterService } from './code-generation-flutter.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Diagram, User]), AuthModule],
   controllers: [DiagramsController],
-  providers: [DiagramsService,CodeGenerationService,],
-  exports: [DiagramsService,CodeGenerationService],
+  providers: [DiagramsService,CodeGenerationService,CodeGenerationFlutterService],
+  exports: [DiagramsService,CodeGenerationService,CodeGenerationFlutterService],
 })
 export class DiagramsModule {}

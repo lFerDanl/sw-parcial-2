@@ -17,6 +17,11 @@ async function bootstrap() {
     })
   );
 
+    const server = app.getHttpServer();
+    server.setTimeout(120000); 
+    server.keepAliveTimeout = 65000; 
+    server.headersTimeout = 66000; 
+
   const config = new DocumentBuilder()
   .setTitle("sw-parcial")
   .setDescription("server backend para la aplicacion web de diagramas")

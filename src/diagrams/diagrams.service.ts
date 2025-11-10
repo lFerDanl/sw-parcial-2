@@ -8,6 +8,7 @@ import { User } from 'src/users/entities/user.entity';
 import { UpdateDiagramDto } from './dto/update-diagram.dto';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { CodeGenerationService } from './code-generation.service';
+import { CodeGenerationFlutterService } from './code-generation-flutter.service';
 
 @Injectable()
 export class DiagramsService {
@@ -17,6 +18,7 @@ export class DiagramsService {
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
     private readonly codeGenerationService: CodeGenerationService,
+    private readonly codeGenerationFlutterService: CodeGenerationFlutterService,
   ) { }
 
   async create(createDiagramDto: CreateDiagramDto, user: User) {
@@ -490,5 +492,53 @@ export class DiagramsService {
       projectNameFinal,
       basePackageFinal
     );
+  }
+
+  async generateFlutterCode(
+    diagramId: number,
+    user: User,
+    projectName?: string,
+    basePackage?: string
+  ): Promise<Buffer> {
+    // Validar acceso al diagrama
+    const diagram = await this.findOne(diagramId, user);
+    
+    // Validar contenido del diagrama
+    if (!diagram.content || !diagram.content.elements) {
+      throw new Error('El diagrama no tiene contenido válido para generar código');
+    }
+  
+    // Validar que haya al menos una clase
+    if (Object.keys(diagram.content.elements).length === 0) {
+      throw new Error('El diagrama debe contener al menos una clase');
+    }
+  
+    // Normalizar nombre del proyecto (snake_case para Flutter)
+    const projectNameFinal = projectName 
+      ? projectName.toLowerCase().replace(/[^a-z0-9_]/g, '_')
+      : diagram.name.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+  
+    // Normalizar basePackage (com.example.app por defecto)
+    const basePackageFinal = basePackage || 'com.example.app';
+  
+    console.log('Generando proyecto Flutter:', {
+      diagramId,
+      projectName: projectNameFinal,
+      basePackage: basePackageFinal,
+      classCount: Object.keys(diagram.content.elements).length,
+      relationCount: Object.keys(diagram.content.relations || {}).length
+    });
+  
+    try {
+      // Generar el proyecto Flutter usando el servicio de código
+      return await this.codeGenerationFlutterService.generateFlutterProject(
+        diagram.content as DiagramContent,
+        projectNameFinal,
+        basePackageFinal
+      );
+    } catch (error) {
+      console.error('Error al generar código Flutter:', error);
+      throw new Error(`No se pudo generar el código Flutter: ${error.message}`);
+    }
   }
 }
