@@ -39,7 +39,7 @@ interface Attribute {
       const imports = [
         this.generateBasicImports(className),
         ...compositionRels.map(rel => 
-          `import '../models/${this.toSnakeCase(rel.targetClass)}.dart';`
+          `import '/models/${this.toSnakeCase(rel.targetClass)}.dart';`
         ),
         `import '../../widgets/nested_list_widget.dart';`
       ].join('\n');
@@ -186,10 +186,10 @@ interface Attribute {
       
       return `import 'package:flutter/material.dart';
   import 'package:provider/provider.dart';
-  import '../services/${this.toSnakeCase(classA)}_service.dart';
-  import '../services/${this.toSnakeCase(classB)}_service.dart';
-  import '../models/${this.toSnakeCase(classA)}.dart';
-  import '../models/${this.toSnakeCase(classB)}.dart';
+  import '/services/${this.toSnakeCase(classA)}_service.dart';
+  import '/services/${this.toSnakeCase(classB)}_service.dart';
+  import '/models/${this.toSnakeCase(classA)}.dart';
+  import '/models/${this.toSnakeCase(classB)}.dart';
   
   class ${this.toPascalCase(fileName)}FormScreen extends StatefulWidget {
     const ${this.toPascalCase(fileName)}FormScreen({super.key});
@@ -643,7 +643,7 @@ interface Attribute {
     }
   
     private static generateBasicImports(className: string): string {
-      return `import '../models/${this.toSnakeCase(className)}.dart';\nimport '../services/${this.toSnakeCase(className)}_service.dart';`;
+      return `import '/models/${this.toSnakeCase(className)}.dart';\nimport '/services/${this.toSnakeCase(className)}_service.dart';`;
     }
   
     private static getDisplayField(classElement: ClassElement): string {

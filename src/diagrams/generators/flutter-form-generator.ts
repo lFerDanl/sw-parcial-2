@@ -357,14 +357,14 @@ ${this.generateSaveDataMapping(classElement, [])}
     diagramContent: DiagramContent
   ): string {
     const imports = [
-      `import '../models/${this.toSnakeCase(className)}.dart';`,
-      `import '../services/${this.toSnakeCase(className)}_service.dart';`,
+      `import '/models/${this.toSnakeCase(className)}.dart';`,
+      `import '/services/${this.toSnakeCase(className)}_service.dart';`,
     ];
     
     for (const rel of relationships) {
       if (rel.isOwner && (rel.type === 'ManyToOne' || rel.type === 'OneToOne')) {
-        imports.push(`import '../models/${this.toSnakeCase(rel.targetClass)}.dart';`);
-        imports.push(`import '../services/${this.toSnakeCase(rel.targetClass)}_service.dart';`);
+        imports.push(`import '/models/${this.toSnakeCase(rel.targetClass)}.dart';`);
+        imports.push(`import '/services/${this.toSnakeCase(rel.targetClass)}_service.dart';`);
       }
     }
     

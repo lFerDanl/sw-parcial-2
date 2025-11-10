@@ -861,8 +861,8 @@ ${toJsonFields},
     return `import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import '../config.dart';
-import '../models/${this.toSnakeCase(className)}.dart';
+import '/config.dart';
+import '/models/${this.toSnakeCase(className)}.dart';
 
 class ${className}Service extends ChangeNotifier {
   List<${className}> _items = [];
