@@ -1,0 +1,91 @@
+{
+  "elements": {
+    "class_1762721200540": {
+      "name": "Usuario",
+      "position": {
+        "x": 140,
+        "y": 340
+      },
+      "attributes": [
+        {
+          "name": "id",
+          "type": "Long"
+        },
+        {
+          "name": "nombre",
+          "type": "String"
+        },
+        {
+          "name": "email",
+          "type": "String"
+        },
+        {
+          "name": "celular",
+          "type": "String"
+        }
+      ]
+    },
+    "class_1762721201324": {
+      "name": "Libro",
+      "position": {
+        "x": 550,
+        "y": 340
+      },
+      "attributes": [
+        {
+          "name": "id",
+          "type": "Long"
+        },
+        {
+          "name": "titulo",
+          "type": "String"
+        },
+        {
+          "name": "autor",
+          "type": "String"
+        },
+        {
+          "name": "isbn",
+          "type": "String"
+        }
+      ]
+    }
+  },
+  "relations": {
+    "32156b99-3b6b-4554-b174-d3d06c4a2cd5": {
+      "to": "class_1762721201324",
+      "from": "class_1762721200540",
+      "type": "OneToMany",
+      "attrs": {
+        "line": {
+          "stroke": "#dc2626",
+          "strokeWidth": 2,
+          "sourceMarker": {
+            "d": "M 0 0",
+            "fill": "none",
+            "type": "path"
+          },
+          "targetMarker": {
+            "d": "M 10 0 L 0 5 L 10 10 L 15 5 L 10 0",
+            "fill": "#dc2626",
+            "type": "path"
+          },
+          "strokeDasharray": "none"
+        }
+      },
+      "labels": [
+        {
+          "text": "OneToMany",
+          "position": 0.5
+        }
+      ],
+      "router": {
+        "name": "manhattan"
+      },
+      "vertices": [],
+      "connector": {
+        "name": "rounded"
+      }
+    }
+  }
+}

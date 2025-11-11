@@ -46,7 +46,6 @@ export class CodeGenerationFlutterService {
   ): Promise<Buffer> {
     const zip = new JSZip();
     
-    // Crear carpeta raíz con el nombre del proyecto
     const projectFolder = zip.folder(this.toSnakeCase(projectName))!;
     
     // Análisis de relaciones
@@ -61,7 +60,7 @@ export class CodeGenerationFlutterService {
     const formsFolder = screensFolder.folder('forms')!;
     const widgetsFolder = libFolder.folder('widgets')!;
     
-    // Archivos base en la raíz del proyecto
+    // Archivos base
     projectFolder.file('.env', this.generateEnvFile());
     projectFolder.file('pubspec.yaml', this.generatePubspecYaml(projectName));
     projectFolder.file('.gitignore', this.generateGitignore());
@@ -85,7 +84,7 @@ export class CodeGenerationFlutterService {
       servicesFolder.file(`${this.toSnakeCase(classElement.name)}_service.dart`, serviceCode);
     }
     
-    // Generar formularios
+    // Generar formularios CRUD completos
     for (const [classId, classElement] of Object.entries(diagramContent.elements)) {
       const relationships = relationshipMap.get(classId) || [];
       const formCode = this.generateFormScreen(
@@ -108,12 +107,11 @@ export class CodeGenerationFlutterService {
     
     // Generar widgets auxiliares
     widgetsFolder.file('custom_dropdown.dart', this.generateCustomDropdown());
-    widgetsFolder.file('nested_list_widget.dart', this.generateNestedListWidget());
     widgetsFolder.file('loading_widget.dart', this.generateLoadingWidget());
     widgetsFolder.file('error_widget.dart', this.generateErrorWidget());
     widgetsFolder.file('empty_state_widget.dart', this.generateEmptyStateWidget());
     
-    // Generar lista de pantallas principales
+    // Generar pantalla principal
     screensFolder.file('home_screen.dart', this.generateHomeScreen(diagramContent));
     
     const buffer = await zip.generateAsync({ 
@@ -134,9 +132,7 @@ export class CodeGenerationFlutterService {
       
       if (!fromClass || !toClass) continue;
       
-      // Determinar quién posee la FK basado en el tipo de relación
       if (relation.type === 'ManyToOne') {
-        // La clase "Many" (from) tiene la FK
         if (!map.has(relation.from)) map.set(relation.from, []);
         map.get(relation.from)!.push({
           type: relation.type,
@@ -145,7 +141,6 @@ export class CodeGenerationFlutterService {
           isOwner: true
         });
       } else if (relation.type === 'OneToMany') {
-        // La clase "Many" (to) tiene la FK
         if (!map.has(relation.to)) map.set(relation.to, []);
         map.get(relation.to)!.push({
           type: 'ManyToOne',
@@ -154,7 +149,6 @@ export class CodeGenerationFlutterService {
           isOwner: true
         });
       } else if (relation.type === 'OneToOne') {
-        // Asumimos que "from" tiene la FK
         if (!map.has(relation.from)) map.set(relation.from, []);
         map.get(relation.from)!.push({
           type: relation.type,
@@ -163,7 +157,6 @@ export class CodeGenerationFlutterService {
           isOwner: true
         });
       } else if (relation.type === 'Inheritance') {
-        // El hijo hereda del padre
         if (!map.has(relation.from)) map.set(relation.from, []);
         map.get(relation.from)!.push({
           type: relation.type,
@@ -172,7 +165,6 @@ export class CodeGenerationFlutterService {
           isOwner: false
         });
       } else if (relation.type === 'Aggregation' || relation.type === 'Composition') {
-        // El contenedor gestiona los componentes
         if (!map.has(relation.from)) map.set(relation.from, []);
         map.get(relation.from)!.push({
           type: relation.type,
@@ -212,7 +204,7 @@ export class CodeGenerationFlutterService {
 
   private generateEnvFile(): string {
     return `# API Backend Configuration
-API_BASE_URL=http://localhost:3000/api
+API_BASE_URL=http://10.0.2.2:8080/api
 API_TIMEOUT=30000
 `;
   }
@@ -274,11 +266,6 @@ migrate_working_dir/
 *.iws
 .idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
-
 # Flutter/Dart/Pub related
 **/doc/api/
 **/ios/Flutter/.last_build_id
@@ -304,104 +291,39 @@ app.*.map.json
 
   private generateMetadata(): string {
     return `# This file tracks properties of this Flutter project.
-# Used by Flutter tool to assess capabilities and perform upgrades etc.
-#
-# This file should be version controlled and should not be manually edited.
 
 version:
   revision: "ea121f8859e4b13e47a8f845e4586164519588bc"
   channel: "stable"
 
 project_type: app
-
-# Tracks metadata for the flutter migrate command
-migration:
-  platforms:
-    - platform: root
-      create_revision: ea121f8859e4b13e47a8f845e4586164519588bc
-      base_revision: ea121f8859e4b13e47a8f845e4586164519588bc
-    - platform: android
-      create_revision: ea121f8859e4b13e47a8f845e4586164519588bc
-      base_revision: ea121f8859e4b13e47a8f845e4586164519588bc
-    - platform: ios
-      create_revision: ea121f8859e4b13e47a8f845e4586164519588bc
-      base_revision: ea121f8859e4b13e47a8f845e4586164519588bc
-    - platform: linux
-      create_revision: ea121f8859e4b13e47a8f845e4586164519588bc
-      base_revision: ea121f8859e4b13e47a8f845e4586164519588bc
-    - platform: macos
-      create_revision: ea121f8859e4b13e47a8f845e4586164519588bc
-      base_revision: ea121f8859e4b13e47a8f845e4586164519588bc
-    - platform: web
-      create_revision: ea121f8859e4b13e47a8f845e4586164519588bc
-      base_revision: ea121f8859e4b13e47a8f845e4586164519588bc
-    - platform: windows
-      create_revision: ea121f8859e4b13e47a8f845e4586164519588bc
-      base_revision: ea121f8859e4b13e47a8f845e4586164519588bc
-
-  # User provided section
-
-  # List of Local paths (relative to this file) that should be
-  # ignored by the migrate tool.
-  #
-  # Files that are not part of the templates will be ignored by default.
-  unmanaged_files:
-    - 'lib/main.dart'
-    - 'ios/Runner.xcodeproj/project.pbxproj'
 `;
   }
 
   private generateAnalysisOptions(): string {
-    return `# This file configures the analyzer, which statically analyzes Dart code to
-# check for errors, warnings, and lints.
-#
-# The issues identified by the analyzer are surfaced in the UI of Dart-enabled
-# IDEs (https://dart.dev/tools#ides-and-editors). The analyzer can also be
-# invoked from the command line by running \`flutter analyze\`.
-
-# The following line activates a set of recommended lints for Flutter apps,
-# packages, and plugins designed to encourage good coding practices.
-include: package:flutter_lints/flutter.yaml
+    return `include: package:flutter_lints/flutter.yaml
 
 linter:
-  # The lint rules applied to this project can be customized in the
-  # section below to disable rules from the \`package:flutter_lints/flutter.yaml\`
-  # included above or to enable additional rules. A list of all available lints
-  # and their documentation is published at https://dart.dev/lints.
-  #
-  # Instead of disabling a lint rule for the entire project in the
-  # section below, it can also be suppressed for a single line of code
-  # or a specific dart file by using the \`// ignore: name_of_lint\` and
-  # \`// ignore_for_file: name_of_lint\` syntax on the line or in the file
-  # producing the lint.
   rules:
-    # avoid_print: false  # Uncomment to disable the \`avoid_print\` rule
-    # prefer_single_quotes: true  # Uncomment to enable the \`prefer_single_quotes\` rule
-
-# Additional information about this file can be found at
-# https://dart.dev/guides/language/analysis-options
+    # Add custom rules here
 `;
   }
 
   private generateReadme(projectName: string): string {
     return `# ${projectName}
 
-A Flutter application generated from UML diagram.
+A Flutter application generated from UML diagram with complete CRUD functionality.
 
-## Getting Started
+## Features
 
-This project was automatically generated and includes:
-
-- **Models**: Data classes with JSON serialization
-- **Services**: HTTP client services with Provider state management
-- **Screens**: CRUD forms for all entities
-- **Widgets**: Reusable UI components
-
-## Prerequisites
-
-- Flutter SDK (>=3.7.2)
-- Dart SDK
-- A running backend API
+- ✅ Complete CRUD operations (Create, Read, Update, Delete)
+- ✅ List view with cards for each entity
+- ✅ Form validation
+- ✅ State management with Provider
+- ✅ RESTful API integration
+- ✅ Loading states and error handling
+- ✅ Material Design 3 UI
+- ✅ Responsive dialogs and confirmations
 
 ## Setup
 
@@ -425,29 +347,30 @@ flutter run
 
 \`\`\`
 lib/
-├── models/          # Data models
-├── services/        # API services
+├── models/          # Data models with JSON serialization
+├── services/        # API services with Provider
 ├── screens/         # UI screens
-│   └── forms/       # CRUD forms
+│   └── forms/       # CRUD management screens
 ├── widgets/         # Reusable widgets
 ├── config.dart      # App configuration
 └── main.dart        # Entry point
 \`\`\`
 
-## Features
+## Usage
 
-- State management with Provider
-- RESTful API integration
-- Form validation
-- Error handling
-- Loading states
-- Material Design 3 UI
+Each entity has its own management screen with:
+- **List View**: Cards displaying all items from the database
+- **Create**: FAB button to open creation form
+- **Edit**: Tap on card or menu to edit
+- **Delete**: Menu option with confirmation dialog
+- **Refresh**: Pull to refresh or refresh button in app bar
 
-## Resources
-
-- [Flutter Documentation](https://docs.flutter.dev/)
-- [Dart Documentation](https://dart.dev/guides)
-- [Provider Package](https://pub.dev/packages/provider)
+The backend is expected to provide REST endpoints following the pattern:
+- GET /api/entity-name - List all
+- GET /api/entity-name/:id - Get by ID
+- POST /api/entity-name - Create
+- PUT /api/entity-name/:id - Update
+- DELETE /api/entity-name/:id - Delete
 `;
   }
 
@@ -549,11 +472,12 @@ ${providers}
       .map(e => `            ListTile(
               leading: Icon(Icons.table_chart, color: Theme.of(context).primaryColor),
               title: Text('${e.name}'),
+              subtitle: const Text('Manage records'),
               onTap: () {
                 Navigator.pop(context);
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => ${e.name}FormScreen()),
+                  MaterialPageRoute(builder: (_) => const ${e.name}FormScreen()),
                 );
               },
             ),`)
@@ -605,7 +529,7 @@ class HomeScreen extends StatelessWidget {
                   ),
                   SizedBox(height: 4),
                   Text(
-                    'Generated App',
+                    'CRUD System',
                     style: TextStyle(
                       color: Colors.white70,
                       fontSize: 14,
@@ -621,7 +545,7 @@ class HomeScreen extends StatelessWidget {
                   Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Text(
-                      'Entities',
+                      'ENTITIES',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
@@ -687,7 +611,7 @@ ${menuItems}
               ),
               const SizedBox(height: 16),
               Text(
-                'Select an entity from the menu to get started',
+                'Select an entity from the menu to manage',
                 style: TextStyle(
                   fontSize: 16,
                   color: Colors.grey[600],
@@ -752,7 +676,7 @@ ${menuItems}
             Text('Version 1.0.0'),
             SizedBox(height: 16),
             Text(
-              'This application was automatically generated from a UML diagram.',
+              'This application was automatically generated from a UML diagram with complete CRUD functionality.',
             ),
             SizedBox(height: 8),
             Text(
@@ -760,10 +684,11 @@ ${menuItems}
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
             SizedBox(height: 4),
-            Text('• CRUD operations for all entities'),
+            Text('• Complete CRUD operations'),
             Text('• RESTful API integration'),
             Text('• State management with Provider'),
             Text('• Form validation'),
+            Text('• Material Design 3'),
           ],
         ),
         actions: [
@@ -783,19 +708,16 @@ ${menuItems}
     const className = classElement.name;
     const attributes = classElement.attributes;
     
-    // Campos del modelo
     const fields = attributes.map(attr => {
       const dartType = this.mapJavaToDartType(attr.type);
       return `  ${dartType}? ${this.toCamelCase(attr.name)};`;
     }).join('\n');
     
-    // Campos de relaciones FK
     const fkFields = relationships
       .filter(rel => rel.isOwner && (rel.type === 'ManyToOne' || rel.type === 'OneToOne'))
       .map(rel => `  int? ${this.toCamelCase(rel.targetClass)}Id;`)
       .join('\n');
     
-    // Constructor
     const constructorParams = [
       ...attributes.map(attr => `this.${this.toCamelCase(attr.name)}`),
       ...relationships
@@ -803,7 +725,6 @@ ${menuItems}
         .map(rel => `this.${this.toCamelCase(rel.targetClass)}Id`)
     ].join(', ');
     
-    // fromJson
     const fromJsonFields = [
       ...attributes.map(attr => {
         const fieldName = this.toCamelCase(attr.name);
@@ -818,7 +739,6 @@ ${menuItems}
         })
     ].join(',\n');
     
-    // toJson
     const toJsonFields = [
       ...attributes.map(attr => {
         const fieldName = this.toCamelCase(attr.name);
@@ -962,7 +882,7 @@ class ${className}Service extends ChangeNotifier {
         headers: {'Content-Type': 'application/json'},
       ).timeout(Duration(milliseconds: AppConfig.apiTimeout));
 
-      if (response.statusCode == 204) {
+      if (response.statusCode == 204 || response.statusCode == 200) {
         await fetchAll();
         return true;
       }
@@ -1004,27 +924,15 @@ class ${className}Service extends ChangeNotifier {
     return typeMap[javaType] || 'String';
   }
 
-  // Métodos de generación de formularios
+  // Método principal para generar formularios
   private generateFormScreen(
     classElement: ClassElement,
     relationships: RelationshipInfo[],
     diagramContent: DiagramContent,
     classId: string
   ): string {
-    // Importar y usar directamente los métodos estáticos
     const { FlutterFormGenerator } = require('./generators/flutter-form-generator');
-    const { FlutterFormGeneratorHelpers } = require('./generators/flutter-form-generator-helpers');
     
-    // Vincular métodos de helpers al generador principal
-    FlutterFormGenerator['generateFormFields'] = FlutterFormGeneratorHelpers.generateFormFields;
-    FlutterFormGenerator['generateFKServiceLoads'] = FlutterFormGeneratorHelpers.generateFKServiceLoads;
-    FlutterFormGenerator['generateLoadExistingData'] = FlutterFormGeneratorHelpers.generateLoadExistingData;
-    FlutterFormGenerator['generateSaveMethod'] = FlutterFormGeneratorHelpers.generateSaveMethod;
-    FlutterFormGenerator['generateSaveDataMapping'] = FlutterFormGeneratorHelpers.generateSaveDataMapping;
-    FlutterFormGenerator['generateCompositionForm'] = FlutterFormGeneratorHelpers.generateCompositionForm;
-    FlutterFormGenerator['generateManyToManyAssignmentForm'] = FlutterFormGeneratorHelpers.generateManyToManyAssignmentForm;
-    FlutterFormGenerator['getDisplayField'] = FlutterFormGeneratorHelpers['getDisplayField'];
-
     return FlutterFormGenerator.generateFormScreen(
       classElement,
       relationships,
@@ -1034,32 +942,296 @@ class ${className}Service extends ChangeNotifier {
   }
 
   private generateManyToManyAssignmentForm(assignment: any, diagramContent: DiagramContent): string {
-    const { FlutterFormGeneratorHelpers } = require('./generators/flutter-form-generator-helpers');
-    return FlutterFormGeneratorHelpers.generateManyToManyAssignmentForm(assignment, diagramContent);
+    // Implementación simplificada para M:M
+    const { classA, classB, classAId, classBId, fileName } = assignment;
+    
+    return `import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '/services/${this.toSnakeCase(classA)}_service.dart';
+import '/services/${this.toSnakeCase(classB)}_service.dart';
+
+class ${this.toPascalCase(fileName)}FormScreen extends StatefulWidget {
+  const ${this.toPascalCase(fileName)}FormScreen({super.key});
+
+  @override
+  State<${this.toPascalCase(fileName)}FormScreen> createState() => _${this.toPascalCase(fileName)}FormScreenState();
+}
+
+class _${this.toPascalCase(fileName)}FormScreenState extends State<${this.toPascalCase(fileName)}FormScreen> {
+  int? selected${classA}Id;
+  int? selected${classB}Id;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await Provider.of<${classA}Service>(context, listen: false).fetchAll();
+      await Provider.of<${classB}Service>(context, listen: false).fetchAll();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Assign ${classA} to ${classB}'),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Consumer<${classA}Service>(
+              builder: (context, service, _) {
+                return DropdownButtonFormField<int>(
+                  value: selected${classA}Id,
+                  decoration: const InputDecoration(labelText: 'Select ${classA}'),
+                  items: service.items.map((item) {
+                    return DropdownMenuItem(
+                      value: item.id,
+                      child: Text('\${item.id}'),
+                    );
+                  }).toList(),
+                  onChanged: (value) => setState(() => selected${classA}Id = value),
+                );
+              },
+            ),
+            const SizedBox(height: 16),
+            Consumer<${classB}Service>(
+              builder: (context, service, _) {
+                return DropdownButtonFormField<int>(
+                  value: selected${classB}Id,
+                  decoration: const InputDecoration(labelText: 'Select ${classB}'),
+                  items: service.items.map((item) {
+                    return DropdownMenuItem(
+                      value: item.id,
+                      child: Text('\${item.id}'),
+                    );
+                  }).toList(),
+                  onChanged: (value) => setState(() => selected${classB}Id = value),
+                );
+              },
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: () {
+                // TODO: Implement M:M assignment logic
+                Navigator.pop(context);
+              },
+              child: const Text('Create Assignment'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+`;
+  }
+
+  private toPascalCase(str: string): string {
+    return str.replace(/(^|_)([a-z])/g, (_, __, c) => c.toUpperCase()).replace(/_/g, '');
   }
 
   private generateCustomDropdown(): string {
-    const { FlutterWidgetsGenerator } = require('./generators/flutter-widgets-generator');
-    return FlutterWidgetsGenerator.generateCustomDropdown();
-  }
+    return `import 'package:flutter/material.dart';
 
-  private generateNestedListWidget(): string {
-    const { FlutterWidgetsGenerator } = require('./generators/flutter-widgets-generator');
-    return FlutterWidgetsGenerator.generateNestedListWidget();
+class CustomDropdown<T> extends StatelessWidget {
+  final String label;
+  final T? value;
+  final List<DropdownMenuItem<T>> items;
+  final ValueChanged<T?> onChanged;
+  final String? Function(T?)? validator;
+  final IconData? icon;
+
+  const CustomDropdown({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.items,
+    required this.onChanged,
+    this.validator,
+    this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonFormField<T>(
+      value: value,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: icon != null ? Icon(icon) : null,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        filled: true,
+        fillColor: Colors.grey[50],
+      ),
+      items: items,
+      onChanged: onChanged,
+      validator: validator,
+      isExpanded: true,
+    );
+  }
+}
+`;
   }
 
   private generateLoadingWidget(): string {
-    const { FlutterWidgetsGenerator } = require('./generators/flutter-widgets-generator');
-    return FlutterWidgetsGenerator.generateLoadingWidget();
+    return `import 'package:flutter/material.dart';
+import 'package:flutter_spinkit/flutter_spinkit.dart';
+
+class LoadingWidget extends StatelessWidget {
+  final String? message;
+
+  const LoadingWidget({super.key, this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SpinKitFadingCircle(
+            color: Theme.of(context).primaryColor,
+            size: 50.0,
+          ),
+          if (message != null) ...[
+            const SizedBox(height: 16),
+            Text(
+              message!,
+              style: const TextStyle(fontSize: 16, color: Colors.grey),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+`;
   }
 
   private generateErrorWidget(): string {
-    const { FlutterWidgetsGenerator } = require('./generators/flutter-widgets-generator');
-    return FlutterWidgetsGenerator.generateErrorWidget();
+    return `import 'package:flutter/material.dart';
+
+class ErrorDisplayWidget extends StatelessWidget {
+  final String error;
+  final VoidCallback? onRetry;
+
+  const ErrorDisplayWidget({
+    super.key,
+    required this.error,
+    this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.error_outline,
+              size: 64,
+              color: Colors.red.shade400,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Error',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Colors.red.shade700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              error,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 16, color: Colors.grey),
+            ),
+            if (onRetry != null) ...[
+              const SizedBox(height: 24),
+              ElevatedButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+`;
   }
 
   private generateEmptyStateWidget(): string {
-    const { FlutterWidgetsGenerator } = require('./generators/flutter-widgets-generator');
-    return FlutterWidgetsGenerator.generateEmptyStateWidget();
+    return `import 'package:flutter/material.dart';
+
+class EmptyStateWidget extends StatelessWidget {
+  final String title;
+  final String message;
+  final IconData icon;
+  final VoidCallback? onAction;
+  final String? actionLabel;
+
+  const EmptyStateWidget({
+    super.key,
+    required this.title,
+    required this.message,
+    this.icon = Icons.inbox,
+    this.onAction,
+    this.actionLabel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 80,
+              color: Colors.grey.shade400,
+            ),
+            const SizedBox(height: 24),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey.shade600,
+              ),
+            ),
+            if (onAction != null && actionLabel != null) ...[
+              const SizedBox(height: 32),
+              ElevatedButton.icon(
+                onPressed: onAction,
+                icon: const Icon(Icons.add),
+                label: Text(actionLabel!),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+`;
   }
 }

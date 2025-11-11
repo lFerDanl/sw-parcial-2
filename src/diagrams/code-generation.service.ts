@@ -373,15 +373,86 @@ ${relationFields.join('\n\n')}
     classData: ClassElement,
     basePackage: string
   ): string {
-    const attributes = classData.attributes
+    // Atributos simples
+    const baseAttributes = classData.attributes
       .map(attr => {
         const javaType = this.mapTypeToJava(attr.type);
         return `    private ${javaType} ${attr.name};`;
       })
       .join('\n');
-    
-    // Generar getters y setters explícitos
-    const gettersSetters = classData.attributes
+
+    // Campos de relaciones representados por IDs
+    const relationIdFields: string[] = [];
+    const relationGettersSetters: string[] = [];
+
+    const relations = this.currentContent?.relations || {};
+
+    const addIdField = (fieldName: string, isCollection: boolean, isSet: boolean = false) => {
+      if (isCollection) {
+        relationIdFields.push(
+          `    private ${isSet ? 'java.util.Set<Long>' : 'java.util.List<Long>'} ${fieldName};`
+        );
+        const cap = this.capitalize(fieldName);
+        relationGettersSetters.push(`
+    public ${isSet ? 'java.util.Set<Long>' : 'java.util.List<Long>'} get${cap}() {
+        return ${fieldName};
+    }
+
+    public void set${cap}(${isSet ? 'java.util.Set<Long>' : 'java.util.List<Long>'} ${fieldName}) {
+        this.${fieldName} = ${fieldName};
+    }`);
+      } else {
+        relationIdFields.push(`    private Long ${fieldName};`);
+        const cap = this.capitalize(fieldName);
+        relationGettersSetters.push(`
+    public Long get${cap}() {
+        return ${fieldName};
+    }
+
+    public void set${cap}(Long ${fieldName}) {
+        this.${fieldName} = ${fieldName};
+    }`);
+      }
+    };
+
+    for (const relation of Object.values(relations)) {
+      const fromClass = this.getClassNameById(relation.from, relations);
+      const toClass = this.getClassNameById(relation.to, relations);
+      const fromField = this.toLowerCamelCase(toClass) + 'Id';
+      const toManyListField = this.toLowerCamelCase(fromClass) + 'Ids';
+      const manyToManySetField = this.toLowerCamelCase(toClass) + 'Ids';
+
+      if (fromClass === className) {
+        // Dueño típico: ManyToOne / OneToOne -> id único
+        if (relation.type === 'ManyToOne' || relation.type === 'OneToOne') {
+          addIdField(fromField, false);
+        }
+        // Si el JSON describe OneToMany desde este lado (uno) -> lista de IDs del destino
+        if (relation.type === 'OneToMany') {
+          addIdField(this.toLowerCamelCase(toClass) + 'Ids', true, false);
+        }
+        // ManyToMany: usar Set<Long> de IDs del destino (en lado dueño)
+        if (relation.type === 'ManyToMany') {
+          addIdField(manyToManySetField, true, true);
+        }
+        // Composition/Aggregation sobre este lado: usar List<Long>
+        if (relation.type === 'Composition' || relation.type === 'Aggregation') {
+          addIdField(this.toLowerCamelCase(toClass) + 'Ids', true, false);
+        }
+      }
+
+      // Lado inverso de ManyToOne (OneToMany en esta clase)
+      if (toClass === className && relation.type === 'ManyToOne') {
+        addIdField(toManyListField, true, false);
+      }
+
+      // Lado destino (many) de OneToMany -> ID único del padre
+      if (toClass === className && relation.type === 'OneToMany') {
+        addIdField(this.toLowerCamelCase(fromClass) + 'Id', false);
+      }
+    }
+
+    const gettersSettersBase = classData.attributes
       .map(attr => {
         const javaType = this.mapTypeToJava(attr.type);
         const capitalizedName = this.capitalize(attr.name);
@@ -395,21 +466,31 @@ ${relationFields.join('\n\n')}
     }`;
       })
       .join('\n');
-    
+
+    // Imports para colecciones si hay relaciones
+    const needsList = relationIdFields.some(f => f.includes('List<Long>'));
+    const needsSet = relationIdFields.some(f => f.includes('Set<Long>'));
+
+    const extraImports = [
+      needsList ? 'import java.util.List;' : '',
+      needsSet ? 'import java.util.Set;' : ''
+    ].filter(Boolean).join('\n');
+
     return `package ${basePackage}.dto;
 
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import java.io.Serializable;
+${extraImports ? '\n' + extraImports : ''}
 
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 public class ${className}DTO implements Serializable {
 
-${attributes}
-${gettersSetters}
+${baseAttributes}${relationIdFields.length ? '\n' + relationIdFields.join('\n') : ''}
+${gettersSettersBase}${relationGettersSetters.length ? '\n' + relationGettersSetters.join('\n') : ''}
 }
 `;
   }
@@ -442,6 +523,7 @@ public interface ${className}Repository extends JpaRepository<${className}, Long
     );
     
     const attributes = classData?.attributes || [];
+    const relations = this.currentContent?.relations || {};
     
     // Generar mapeo DTO -> Entity
     const entityMapping = attributes
@@ -453,19 +535,141 @@ public interface ${className}Repository extends JpaRepository<${className}, Long
     const dtoMapping = attributes
       .map(attr => `        dto.set${this.capitalize(attr.name)}(${varName}.get${this.capitalize(attr.name)}());`)
       .join('\n');
+
+    // Inyección de repositorios relacionados y mapeos por relaciones
+    const relatedRepoImports: Set<string> = new Set();
+    const relatedRepoFields: string[] = [];
+    const relationEntityMapping: string[] = [];
+    const relationDtoMapping: string[] = [];
+    let needsSetInService = false;
+
+    const addRepo = (otherClass: string) => {
+      relatedRepoImports.add(`import ${basePackage}.repository.${otherClass}Repository;`);
+      const repoVar = this.toLowerCamelCase(otherClass) + 'Repository';
+      relatedRepoFields.push(`    @Autowired\n    private ${otherClass}Repository ${repoVar};`);
+      return repoVar;
+    };
+
+    for (const relation of Object.values(relations)) {
+      const fromClass = this.getClassNameById(relation.from, relations);
+      const toClass = this.getClassNameById(relation.to, relations);
+      if (!fromClass || !toClass) continue;
+
+      // Lado dueño: ManyToOne / OneToOne como ID único
+      if (fromClass === className && (relation.type === 'ManyToOne' || relation.type === 'OneToOne')) {
+        const fieldName = this.toLowerCamelCase(toClass); // ej: category
+        const idField = fieldName + 'Id';
+        const repoVar = addRepo(toClass);
+        relationEntityMapping.push(
+          `        if (dto.get${this.capitalize(idField)}() != null) {\n` +
+          `            ${varName}.set${this.capitalize(fieldName)}(${repoVar}.findById(dto.get${this.capitalize(idField)}()).orElse(null));\n` +
+          `        } else {\n` +
+          `            ${varName}.set${this.capitalize(fieldName)}(null);\n` +
+          `        }`
+        );
+        relationDtoMapping.push(
+          `        dto.set${this.capitalize(idField)}(${varName}.get${this.capitalize(fieldName)}() != null ? ${varName}.get${this.capitalize(fieldName)}().getId() : null);`
+        );
+      }
+
+      // Lado inverso de ManyToOne: esta clase tiene OneToMany lista
+      if (toClass === className && relation.type === 'ManyToOne') {
+        const sourceClass = fromClass; // hijos
+        const listField = this.toLowerCamelCase(sourceClass) + 'List';
+        const idsField = this.toLowerCamelCase(sourceClass) + 'Ids';
+        const repoVar = addRepo(sourceClass);
+        relationEntityMapping.push(
+          `        if (dto.get${this.capitalize(idsField)}() != null) {\n` +
+          `            ${varName}.set${this.capitalize(listField)}(${repoVar}.findAllById(dto.get${this.capitalize(idsField)}()));\n` +
+          `        }`
+        );
+        relationDtoMapping.push(
+          `        dto.set${this.capitalize(idsField)}(${varName}.get${this.capitalize(listField)}().stream().map(e -> e.getId()).collect(Collectors.toList()));`
+        );
+      }
+
+      // Lado destino (many) cuando el JSON solo describe OneToMany: asignar padre por ID
+      if (toClass === className && relation.type === 'OneToMany') {
+        const parentClass = fromClass;
+        const fieldName = this.toLowerCamelCase(parentClass);
+        const idField = fieldName + 'Id';
+        const repoVar = addRepo(parentClass);
+        relationEntityMapping.push(
+          `        if (dto.get${this.capitalize(idField)}() != null) {\n` +
+          `            ${varName}.set${this.capitalize(fieldName)}(${repoVar}.findById(dto.get${this.capitalize(idField)}()).orElse(null));\n` +
+          `        } else {\n` +
+          `            ${varName}.set${this.capitalize(fieldName)}(null);\n` +
+          `        }`
+        );
+        relationDtoMapping.push(
+          `        dto.set${this.capitalize(idField)}(${varName}.get${this.capitalize(fieldName)}() != null ? ${varName}.get${this.capitalize(fieldName)}().getId() : null);`
+        );
+      }
+
+      // ManyToMany dueño: Set<Long> IDs
+      if (fromClass === className && relation.type === 'ManyToMany') {
+        needsSetInService = true;
+        const targetClass = toClass;
+        const setField = this.toLowerCamelCase(targetClass) + 'Set';
+        const idsField = this.toLowerCamelCase(targetClass) + 'Ids';
+        const repoVar = addRepo(targetClass);
+        relationEntityMapping.push(
+          `        if (dto.get${this.capitalize(idsField)}() != null) {\n` +
+          `            ${varName}.set${this.capitalize(setField)}(new java.util.HashSet<>(${repoVar}.findAllById(dto.get${this.capitalize(idsField)}())));\n` +
+          `        }`
+        );
+        relationDtoMapping.push(
+          `        dto.set${this.capitalize(idsField)}(${varName}.get${this.capitalize(setField)}().stream().map(e -> e.getId()).collect(java.util.stream.Collectors.toSet()));`
+        );
+      }
+
+      // Composition / Aggregation: listas de hijos asignadas por IDs
+      if (fromClass === className && (relation.type === 'Composition' || relation.type === 'Aggregation')) {
+        const targetClass = toClass;
+        const listField = this.toLowerCamelCase(targetClass) + 'List';
+        const idsField = this.toLowerCamelCase(targetClass) + 'Ids';
+        const repoVar = addRepo(targetClass);
+        relationEntityMapping.push(
+          `        if (dto.get${this.capitalize(idsField)}() != null) {\n` +
+          `            ${varName}.set${this.capitalize(listField)}(${repoVar}.findAllById(dto.get${this.capitalize(idsField)}()));\n` +
+          `        }`
+        );
+        relationDtoMapping.push(
+          `        dto.set${this.capitalize(idsField)}(${varName}.get${this.capitalize(listField)}().stream().map(e -> e.getId()).collect(Collectors.toList()));`
+        );
+      }
+
+      // Lado 'uno' cuando el JSON describe OneToMany: asignar lista de hijos por IDs
+      if (fromClass === className && relation.type === 'OneToMany') {
+        const childClass = toClass;
+        const listField = this.toLowerCamelCase(childClass) + 'List';
+        const idsField = this.toLowerCamelCase(childClass) + 'Ids';
+        const repoVar = addRepo(childClass);
+        relationEntityMapping.push(
+          `        if (dto.get${this.capitalize(idsField)}() != null) {\n` +
+          `            ${varName}.set${this.capitalize(listField)}(${repoVar}.findAllById(dto.get${this.capitalize(idsField)}()));\n` +
+          `        }`
+        );
+        relationDtoMapping.push(
+          `        dto.set${this.capitalize(idsField)}(${varName}.get${this.capitalize(listField)}().stream().map(e -> e.getId()).collect(Collectors.toList()));`
+        );
+      }
+    }
     
     return `package ${basePackage}.service;
 
 import ${basePackage}.entity.${className};
 import ${basePackage}.dto.${className}DTO;
 import ${basePackage}.repository.${className}Repository;
+${Array.from(relatedRepoImports).join('\n')}
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.Optional;
-import java.util.stream.Collectors;
+    import java.util.List;
+${needsSetInService ? 'import java.util.Set;\nimport java.util.HashSet;' : ''}
+    import java.util.Optional;
+    import java.util.stream.Collectors;
 
 @Service
 @Transactional
@@ -473,6 +677,7 @@ public class ${className}Service {
 
     @Autowired
     private ${className}Repository ${varName}Repository;
+${relatedRepoFields.length ? '\n' + relatedRepoFields.join('\n') : ''}
 
     public List<${className}DTO> findAll() {
         return ${varName}Repository.findAll().stream()
@@ -512,6 +717,7 @@ public class ${className}Service {
         
         ${className}DTO dto = new ${className}DTO();
 ${dtoMapping}
+${relationDtoMapping.length ? '\n' + relationDtoMapping.join('\n') : ''}
         return dto;
     }
 
@@ -520,6 +726,7 @@ ${dtoMapping}
         
         ${className} ${varName} = new ${className}();
 ${entityMapping}
+${relationEntityMapping.length ? '\n' + relationEntityMapping.join('\n') : ''}
         return ${varName};
     }
 
@@ -527,6 +734,7 @@ ${entityMapping}
         if (dto == null) return;
         
 ${entityMapping}
+${relationEntityMapping.length ? '\n' + relationEntityMapping.join('\n') : ''}
     }
 }
 `;
