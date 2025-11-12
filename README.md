@@ -70,6 +70,38 @@ $ mau deploy
 
 With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
 
+### Deploy en Render (Web Service)
+
+Pasos rápidos para desplegar este backend en Render:
+
+1. Prepara el proyecto
+   - Asegúrate de tener el script de producción: `yarn start:prod` (ya configurado).
+   - Render inyecta `PORT`; el servidor ya escucha `process.env.PORT`.
+
+2. Variables de entorno necesarias
+   - `DB_HOST`, `DB_PORT` (por defecto `5432`), `DB_USER`, `DB_PASSWORD`, `DB_NAME`.
+   - `JWT_SECRET` para firmar tokens.
+   - `POSTGRES_SSL` (`"true"` si la base requiere SSL, por ejemplo en Render).
+   - `GEMINI_API_KEY` (opcional, para las funciones que lo usen).
+
+3. Opción A: Configuración manual en el dashboard de Render
+   - Crea un nuevo “Web Service” desde tu repo.
+   - Build Command: `yarn && yarn build`
+   - Start Command: `yarn start:prod`
+   - Health Check Path: `/docs`
+   - Añade las variables de entorno anteriores.
+
+4. Opción B: Infraestructura como código
+   - Usa el archivo `render.yaml` incluido para que Render configure el servicio automáticamente.
+
+5. Base de datos (Render PostgreSQL opcional)
+   - Si usas una base en Render, crea el servicio PostgreSQL y copia sus credenciales a las variables de entorno.
+   - Si la conexión exige SSL, coloca `POSTGRES_SSL="true"`.
+
+6. Despliegue
+   - Conecta tu repo de GitHub a Render y habilita Auto Deploy.
+   - Tras el build, visita la URL del servicio y verifica `/docs`.
+
 ## Resources
 
 Check out a few resources that may come in handy when working with NestJS:

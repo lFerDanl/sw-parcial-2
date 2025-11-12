@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: sw-parcial-backend
+    env: node
+    plan: free
+    buildCommand: yarn && yarn build
+    startCommand: yarn start:prod
+    autoDeploy: true
+    healthCheckPath: /docs
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: POSTGRES_SSL
+        value: "true"
+      - key: DB_PORT
+        value: "5432"
