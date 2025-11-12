@@ -146,7 +146,7 @@ export class CodeGenerationService {
 
     zip.file(
       `${projectName}/postman_collection.json`,
-      this.generatePostmanCollection(projectName, content.elements)
+      this.generatePostmanCollection(projectName, content.elements, content.relations)
     );
     
     return await zip.generateAsync({ type: 'nodebuffer' });
@@ -163,12 +163,16 @@ export class CodeGenerationService {
   ): string {
     const imports = new Set<string>([
       'import jakarta.persistence.*;',
-      'import lombok.Data;',
+      'import lombok.Getter;',
+      'import lombok.Setter;',
+      'import lombok.EqualsAndHashCode;',
+      'import lombok.ToString;',
       'import lombok.NoArgsConstructor;',
       'import lombok.AllArgsConstructor;'
     ]);
     
     const attributes: string[] = [];
+    const relationMemberNames: string[] = [];
     const relationFields: string[] = [];
 
       // Variables para herencia
@@ -181,13 +185,14 @@ export class CodeGenerationService {
         const toClass = this.getClassNameById(relation.to, relations);
 
         if (relation.type === 'Inheritance') {
-        if (fromClass === className) {
+        // Corrección: en el JSON, 'from' es el HIJO y 'to' es el PADRE
+        if (toClass === className) {
             // Esta clase es la PADRE
             isInheritanceParent = true;
         }
-        if (toClass === className) {
+        if (fromClass === className) {
             // Esta clase es HIJA → guarda referencia del padre
-            parentClass = fromClass;
+            parentClass = toClass;
         }
         }
     }
@@ -205,6 +210,7 @@ export class CodeGenerationService {
         if (attr.name.toLowerCase() === 'id') {
             attributes.push(`    @Id`);
             attributes.push(`    @GeneratedValue(strategy = GenerationType.IDENTITY)`);
+            attributes.push(`    @EqualsAndHashCode.Include`);
         }
 
         attributes.push(`    private ${javaType} ${attr.name};`);
@@ -236,18 +242,52 @@ export class CodeGenerationService {
             sourceClass
         );
         relationFields.push(relationField);
+        // Registrar nombre de campo para excluir en toString
+        const base = this.toLowerCamelCase(targetClass);
+        const memberName = ((): string => {
+          switch (relation.type) {
+            case 'OneToMany':
+            case 'Composition':
+            case 'Aggregation':
+              return `${base}List`;
+            case 'ManyToMany':
+              return `${base}Set`;
+            default:
+              return base;
+          }
+        })();
+        relationMemberNames.push(memberName);
         }
 
-        if (isTarget && relation.type !== 'ManyToOne' && !isSource) {
+        if (isTarget && !isSource) {
         const sourceClass = this.getClassNameById(relation.from, relations);
         const inverseType = this.getInverseRelationType(relation.type);
+        // Para OneToMany inverso, mappedBy debe ser el nombre del campo ManyToOne en la entidad hija
+        // que corresponde al nombre de esta clase en lowerCamelCase
+        const mappedByClassName = className; // usar la clase actual para mappedBy
         const relationField = this.generateRelationField(
             inverseType,
             sourceClass,
             false,
-            imports
+            imports,
+            mappedByClassName
         );
         relationFields.push(relationField);
+        // Registrar nombre de campo para excluir en toString (lado inverso usa inverseType y sourceClass)
+        const baseInv = this.toLowerCamelCase(sourceClass);
+        const memberNameInv = ((): string => {
+          switch (inverseType) {
+            case 'OneToMany':
+            case 'Composition':
+            case 'Aggregation':
+              return `${baseInv}List`;
+            case 'ManyToMany':
+              return `${baseInv}Set`;
+            default:
+              return baseInv;
+          }
+        })();
+        relationMemberNames.push(memberNameInv);
         }
     }
     const hasLists = relationFields.some(f => f.includes('List<'));
@@ -280,7 +320,10 @@ import java.util.*;
 
 @Entity
 @Table(name = "${this.toSnakeCase(className)}")${inheritanceAnnotation}
-@Data
+@Getter
+@Setter
+@EqualsAndHashCode(onlyExplicitlyIncluded = true)
+@ToString(${relationMemberNames.length ? `exclude = { ${relationMemberNames.map(n => '"' + n + '"').join(', ')} }` : ''})
 @NoArgsConstructor
 @AllArgsConstructor
 public class ${className}${extendsClause} {
@@ -311,7 +354,7 @@ ${relationFields.join('\n\n')}
     @JoinColumn(name = "${this.toSnakeCase(fieldName)}_id")
     private ${targetClass} ${fieldName};`;
         } else {
-          return `    @OneToOne(mappedBy = "${fieldName}")
+          return `    @OneToOne(mappedBy = "${this.toLowerCamelCase(sourceClass || "")}")
     private ${targetClass} ${fieldName};`;
         }
         
@@ -329,7 +372,7 @@ ${relationFields.join('\n\n')}
         imports.add('import java.util.Set;');
         if (isOwner) {
           // ✅ Ajuste: Generar nombre de tabla consistente alfabéticamente
-          const sourceTable = this.toSnakeCase(targetClass);
+          const sourceTable = this.toSnakeCase(this.toLowerCamelCase(sourceClass || "") || "");
           const targetTable = this.toSnakeCase(fieldName);
           const joinTableName = sourceTable < targetTable 
             ? `${sourceTable}_${targetTable}` 
@@ -338,12 +381,12 @@ ${relationFields.join('\n\n')}
           return `    @ManyToMany
     @JoinTable(
         name = "${joinTableName}",
-        joinColumns = @JoinColumn(name = "${this.toSnakeCase(targetClass)}_id"),
+        joinColumns = @JoinColumn(name = "${this.toSnakeCase(this.toLowerCamelCase(sourceClass || "") || "")}_id"),
         inverseJoinColumns = @JoinColumn(name = "${this.toSnakeCase(fieldName)}_id")
     )
     private Set<${targetClass}> ${fieldName}Set = new HashSet<>();`;
         } else {
-          return `    @ManyToMany(mappedBy = "${fieldName}Set")
+          return `    @ManyToMany(mappedBy = "${this.toLowerCamelCase(sourceClass || "")}Set")
     private Set<${targetClass}> ${fieldName}Set = new HashSet<>();`;
         }
         
@@ -352,13 +395,21 @@ ${relationFields.join('\n\n')}
 
     case 'Composition':
         imports.add('import java.util.List;');
-        return `    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
+        return `    @OneToMany(mappedBy = "${this.toLowerCamelCase(sourceClass || "")}", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<${targetClass}> ${fieldName}List = new ArrayList<>();`;
     
     case 'Aggregation':
         imports.add('import java.util.List;');
-        return `    @OneToMany
+        return `    @OneToMany(mappedBy = "${this.toLowerCamelCase(sourceClass || "")}")
     private List<${targetClass}> ${fieldName}List = new ArrayList<>();`;
+
+    case 'ManyToOneAggregation':
+        imports.add('import org.hibernate.annotations.OnDelete;');
+        imports.add('import org.hibernate.annotations.OnDeleteAction;');
+        return `    @ManyToOne
+    @JoinColumn(name = "${this.toSnakeCase(fieldName)}_id")
+    @OnDelete(action = OnDeleteAction.SET_NULL)
+    private ${targetClass} ${fieldName};`;
         
       default:
         return `    private ${targetClass} ${fieldName};`;
@@ -373,6 +424,21 @@ ${relationFields.join('\n\n')}
     classData: ClassElement,
     basePackage: string
   ): string {
+    // Detectar herencia: si esta clase es el hijo, obtener el padre
+    const relations = this.currentContent?.relations || {};
+    let parentClass: string | undefined;
+    for (const relation of Object.values(relations)) {
+      if (relation.type === 'Inheritance') {
+        const fromClass = this.getClassNameById(relation.from, relations);
+        const toClass = this.getClassNameById(relation.to, relations);
+        // Corrección: 'from' es el hijo y 'to' es el padre
+        if (fromClass === className) {
+          parentClass = toClass;
+          break;
+        }
+      }
+    }
+
     // Atributos simples
     const baseAttributes = classData.attributes
       .map(attr => {
@@ -384,8 +450,6 @@ ${relationFields.join('\n\n')}
     // Campos de relaciones representados por IDs
     const relationIdFields: string[] = [];
     const relationGettersSetters: string[] = [];
-
-    const relations = this.currentContent?.relations || {};
 
     const addIdField = (fieldName: string, isCollection: boolean, isSet: boolean = false) => {
       if (isCollection) {
@@ -441,6 +505,12 @@ ${relationFields.join('\n\n')}
         }
       }
 
+      // Lado inverso del ManyToMany: también agregar Set<Long> de IDs del otro lado
+      if (toClass === className && relation.type === 'ManyToMany') {
+        const inverseField = this.toLowerCamelCase(fromClass) + 'Ids';
+        addIdField(inverseField, true, true);
+      }
+
       // Lado inverso de ManyToOne (OneToMany en esta clase)
       if (toClass === className && relation.type === 'ManyToOne') {
         addIdField(toManyListField, true, false);
@@ -448,6 +518,11 @@ ${relationFields.join('\n\n')}
 
       // Lado destino (many) de OneToMany -> ID único del padre
       if (toClass === className && relation.type === 'OneToMany') {
+        addIdField(this.toLowerCamelCase(fromClass) + 'Id', false);
+      }
+
+      // Lado hijo en Composition/Aggregation -> ID único del padre
+      if (toClass === className && (relation.type === 'Composition' || relation.type === 'Aggregation')) {
         addIdField(this.toLowerCamelCase(fromClass) + 'Id', false);
       }
     }
@@ -487,7 +562,7 @@ ${extraImports ? '\n' + extraImports : ''}
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class ${className}DTO implements Serializable {
+public class ${className}DTO${parentClass ? ` extends ${parentClass}DTO` : ''} implements Serializable {
 
 ${baseAttributes}${relationIdFields.length ? '\n' + relationIdFields.join('\n') : ''}
 ${gettersSettersBase}${relationGettersSetters.length ? '\n' + relationGettersSetters.join('\n') : ''}
@@ -524,15 +599,42 @@ public interface ${className}Repository extends JpaRepository<${className}, Long
     
     const attributes = classData?.attributes || [];
     const relations = this.currentContent?.relations || {};
+
+    // Detectar herencia: si esta clase es el hijo (from), obtener el padre (to)
+    let parentClass: string | undefined;
+    for (const relation of Object.values(relations)) {
+      if (relation.type === 'Inheritance') {
+        const fromClass = this.getClassNameById(relation.from, relations);
+        const toClass = this.getClassNameById(relation.to, relations);
+        if (fromClass === className) {
+          parentClass = toClass;
+          break;
+        }
+      }
+    }
+    const parentData = parentClass
+      ? Object.values(this.currentContent.elements).find(el => el.name === parentClass)
+      : undefined;
+    const parentAttributes = parentData?.attributes || [];
+    // Evitar duplicados si el hijo redefine algún atributo del padre
+    const childAttrsNoId = (attributes || []).filter(attr => attr.name.toLowerCase() !== 'id');
+    const parentAttrsNoId = (parentAttributes || []).filter(attr => attr.name.toLowerCase() !== 'id');
+    const combinedEntityAttrs = [
+      ...childAttrsNoId,
+      ...parentAttrsNoId.filter(pa => !childAttrsNoId.some(ca => ca.name === pa.name))
+    ];
     
     // Generar mapeo DTO -> Entity
-    const entityMapping = attributes
-      .filter(attr => attr.name.toLowerCase() !== 'id')
+    const entityMapping = combinedEntityAttrs
       .map(attr => `        ${varName}.set${this.capitalize(attr.name)}(dto.get${this.capitalize(attr.name)}());`)
       .join('\n');
     
     // Generar mapeo Entity -> DTO
-    const dtoMapping = attributes
+    const allDtoAttrs = [
+      ...attributes,
+      ...parentAttributes.filter(pa => !attributes.some(ca => ca.name === pa.name))
+    ];
+    const dtoMapping = allDtoAttrs
       .map(attr => `        dto.set${this.capitalize(attr.name)}(${varName}.get${this.capitalize(attr.name)}());`)
       .join('\n');
 
@@ -542,6 +644,9 @@ public interface ${className}Repository extends JpaRepository<${className}, Long
     const relationEntityMapping: string[] = [];
     const relationDtoMapping: string[] = [];
     let needsSetInService = false;
+    // Sincronización para guardar desde el lado inverso de M:M
+    const inverseManyToManyCreateSyncStatements: string[] = [];
+    const inverseManyToManyUpdateSyncStatements: string[] = [];
 
     const addRepo = (otherClass: string) => {
       relatedRepoImports.add(`import ${basePackage}.repository.${otherClass}Repository;`);
@@ -606,6 +711,24 @@ public interface ${className}Repository extends JpaRepository<${className}, Long
         );
       }
 
+      // Lado hijo en Composition/Aggregation: asignar padre por ID
+      if (toClass === className && (relation.type === 'Composition' || relation.type === 'Aggregation')) {
+        const parentClass = fromClass;
+        const fieldName = this.toLowerCamelCase(parentClass);
+        const idField = fieldName + 'Id';
+        const repoVar = addRepo(parentClass);
+        relationEntityMapping.push(
+          `        if (dto.get${this.capitalize(idField)}() != null) {\n` +
+          `            ${varName}.set${this.capitalize(fieldName)}(${repoVar}.findById(dto.get${this.capitalize(idField)}()).orElse(null));\n` +
+          `        } else {\n` +
+          `            ${varName}.set${this.capitalize(fieldName)}(null);\n` +
+          `        }`
+        );
+        relationDtoMapping.push(
+          `        dto.set${this.capitalize(idField)}(${varName}.get${this.capitalize(fieldName)}() != null ? ${varName}.get${this.capitalize(fieldName)}().getId() : null);`
+        );
+      }
+
       // ManyToMany dueño: Set<Long> IDs
       if (fromClass === className && relation.type === 'ManyToMany') {
         needsSetInService = true;
@@ -621,6 +744,20 @@ public interface ${className}Repository extends JpaRepository<${className}, Long
         relationDtoMapping.push(
           `        dto.set${this.capitalize(idsField)}(${varName}.get${this.capitalize(setField)}().stream().map(e -> e.getId()).collect(java.util.stream.Collectors.toSet()));`
         );
+      }
+
+      // ManyToMany inverso: no actualizar join table desde el lado no dueño.
+      // Solo exponer IDs en DTO para lectura; las actualizaciones deben ocurrir
+      // desde el lado dueño para evitar inconsistencias en JPA.
+      if (toClass === className && relation.type === 'ManyToMany') {
+        const sourceClass = fromClass;
+        const setField = this.toLowerCamelCase(sourceClass) + 'Set';
+        const idsField = this.toLowerCamelCase(sourceClass) + 'Ids';
+        // Mapear DTO para lectura de IDs actuales
+        relationDtoMapping.push(
+          `        dto.set${this.capitalize(idsField)}(${varName}.get${this.capitalize(setField)}().stream().map(e -> e.getId()).collect(java.util.stream.Collectors.toSet()));`
+        );
+        // No generar mapeo de entidad ni sincronización aquí.
       }
 
       // Composition / Aggregation: listas de hijos asignadas por IDs
@@ -656,6 +793,9 @@ public interface ${className}Repository extends JpaRepository<${className}, Long
       }
     }
     
+    const afterCreateInverseSync = inverseManyToManyCreateSyncStatements.length ? '\n' + inverseManyToManyCreateSyncStatements.join('\n') : '';
+    const afterUpdateInverseSync = inverseManyToManyUpdateSyncStatements.length ? '\n' + inverseManyToManyUpdateSyncStatements.join('\n') : '';
+
     return `package ${basePackage}.service;
 
 import ${basePackage}.entity.${className};
@@ -692,7 +832,7 @@ ${relatedRepoFields.length ? '\n' + relatedRepoFields.join('\n') : ''}
 
     public ${className}DTO create(${className}DTO ${varName}DTO) {
         ${className} ${varName} = convertToEntity(${varName}DTO);
-        ${className} saved = ${varName}Repository.save(${varName});
+        ${className} saved = ${varName}Repository.save(${varName});${afterCreateInverseSync}
         return convertToDTO(saved);
     }
 
@@ -700,7 +840,8 @@ ${relatedRepoFields.length ? '\n' + relatedRepoFields.join('\n') : ''}
         return ${varName}Repository.findById(id)
             .map(existing -> {
                 updateEntityFromDTO(existing, ${varName}DTO);
-                return convertToDTO(${varName}Repository.save(existing));
+                ${className} updated = ${varName}Repository.save(existing);${afterUpdateInverseSync}
+                return convertToDTO(updated);
             });
     }
 
@@ -1392,6 +1533,8 @@ Y comienza a desarrollar. ¡Feliz codificación! 🚀
       'ManyToOne': 'OneToMany',
       'ManyToMany': 'ManyToMany',
       'OneToOne': 'OneToOne',
+      'Composition': 'ManyToOne',
+      'Aggregation': 'ManyToOneAggregation',
     };
     return inverseMap[relationType] || relationType;
   }
@@ -2012,7 +2155,7 @@ distributionUrl=https://repo.maven.apache.org/maven2/org/apache/maven/apache-mav
   /**
    * Genera colección de Postman con todos los endpoints
    */
-  private generatePostmanCollection(projectName: string, elements: Record<string, ClassElement>): string {
+  private generatePostmanCollection(projectName: string, elements: Record<string, ClassElement>, relations: Record<string, Relation>): string {
     const collectionName = `${projectName} API`;
     const baseUrl = 'http://localhost:8080/api';
     
@@ -2030,6 +2173,74 @@ distributionUrl=https://repo.maven.apache.org/maven2/org/apache/maven/apache-mav
         if (attr.name.toLowerCase() !== 'id') {
           exampleBody[attr.name] = this.getExampleValue(attr.type, attr.name);
         }
+      }
+
+      // 🆕 Incluir atributos del padre cuando hay herencia (from = hijo, to = padre)
+      let parentClass: string | undefined;
+      for (const relation of Object.values(relations)) {
+        if (relation.type === 'Inheritance') {
+          const fromClass = this.getClassNameById(relation.from, relations);
+          const toClass = this.getClassNameById(relation.to, relations);
+          if (fromClass === className) {
+            parentClass = toClass;
+            break;
+          }
+        }
+      }
+      if (parentClass) {
+        const parentElement = Object.values(elements).find(el => el.name === parentClass);
+        if (parentElement) {
+          for (const pAttr of parentElement.attributes) {
+            if (pAttr.name.toLowerCase() !== 'id' && exampleBody[pAttr.name] === undefined) {
+              exampleBody[pAttr.name] = this.getExampleValue(pAttr.type, pAttr.name);
+            }
+          }
+        }
+      }
+
+      // Agregar campos de relación según DTO generado
+      for (const relation of Object.values(relations)) {
+        const fromClass = this.getClassNameById(relation.from, relations);
+        const toClass = this.getClassNameById(relation.to, relations);
+        const toFieldBase = this.toLowerCamelCase(toClass);
+        const fromFieldBase = this.toLowerCamelCase(fromClass);
+
+        // Dueño: ManyToOne / OneToOne -> <to>Id
+        if (fromClass === className && (relation.type === 'ManyToOne' || relation.type === 'OneToOne')) {
+          exampleBody[`${toFieldBase}Id`] = 1;
+        }
+
+        // Dueño: OneToMany -> <to>Ids (lista)
+        if (fromClass === className && relation.type === 'OneToMany') {
+          exampleBody[`${toFieldBase}Ids`] = [1, 2];
+        }
+
+        // Dueño: ManyToMany -> <to>Ids (array - solo dueño)
+        if (fromClass === className && relation.type === 'ManyToMany') {
+          exampleBody[`${toFieldBase}Ids`] = [1, 2];
+        }
+
+        // Dueño: Composition/Aggregation -> <to>Ids (lista)
+        if (fromClass === className && (relation.type === 'Composition' || relation.type === 'Aggregation')) {
+          exampleBody[`${toFieldBase}Ids`] = [1, 2];
+        }
+
+        // Inverso de ManyToOne: esta clase tiene <from>Ids (lista)
+        if (toClass === className && relation.type === 'ManyToOne') {
+          exampleBody[`${fromFieldBase}Ids`] = [1, 2];
+        }
+
+        // Lado destino de OneToMany: esta clase tiene <from>Id
+        if (toClass === className && relation.type === 'OneToMany') {
+          exampleBody[`${fromFieldBase}Id`] = 1;
+        }
+
+        // Hijo en Composition/Aggregation: esta clase tiene <from>Id
+        if (toClass === className && (relation.type === 'Composition' || relation.type === 'Aggregation')) {
+          exampleBody[`${fromFieldBase}Id`] = 1;
+        }
+
+        // ManyToMany inverso: NO incluir campos (solo dueño)
       }
       
       const folder = {

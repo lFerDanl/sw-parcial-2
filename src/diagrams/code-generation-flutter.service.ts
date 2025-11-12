@@ -74,7 +74,11 @@ export class CodeGenerationFlutterService {
     
     // Generar modelos
     for (const [classId, classElement] of Object.entries(diagramContent.elements)) {
-      const modelCode = this.generateModel(classElement, relationshipMap.get(classId) || []);
+      const modelCode = this.generateModel(
+        classElement,
+        relationshipMap.get(classId) || [],
+        diagramContent
+      );
       modelsFolder.file(`${this.toSnakeCase(classElement.name)}.dart`, modelCode);
     }
     
@@ -148,6 +152,22 @@ export class CodeGenerationFlutterService {
           targetClassId: relation.from,
           isOwner: true
         });
+      } else if (relation.type === 'ManyToMany') {
+        // ManyToMany: el lado dueño es 'from'. El inverso ('to') no es dueño.
+        if (!map.has(relation.from)) map.set(relation.from, []);
+        map.get(relation.from)!.push({
+          type: relation.type,
+          targetClass: toClass,
+          targetClassId: relation.to,
+          isOwner: true
+        });
+        if (!map.has(relation.to)) map.set(relation.to, []);
+        map.get(relation.to)!.push({
+          type: relation.type,
+          targetClass: fromClass,
+          targetClassId: relation.from,
+          isOwner: false
+        });
       } else if (relation.type === 'OneToOne') {
         if (!map.has(relation.from)) map.set(relation.from, []);
         map.get(relation.from)!.push({
@@ -165,11 +185,25 @@ export class CodeGenerationFlutterService {
           isOwner: false
         });
       } else if (relation.type === 'Aggregation' || relation.type === 'Composition') {
+        // Para Flutter, tratamos la relación como:
+        // - Lado padre (from): OneToMany (no propietario para formularios)
+        // - Lado hijo (to): ManyToOne (propietario, genera selector FK)
+
+        // Lado padre: OneToMany
         if (!map.has(relation.from)) map.set(relation.from, []);
         map.get(relation.from)!.push({
-          type: relation.type,
+          type: 'OneToMany',
           targetClass: toClass,
           targetClassId: relation.to,
+          isOwner: false
+        });
+
+        // Lado hijo: ManyToOne (propietario)
+        if (!map.has(relation.to)) map.set(relation.to, []);
+        map.get(relation.to)!.push({
+          type: 'ManyToOne',
+          targetClass: fromClass,
+          targetClassId: relation.from,
           isOwner: true
         });
       }
@@ -183,17 +217,21 @@ export class CodeGenerationFlutterService {
     
     for (const [relId, relation] of Object.entries(diagramContent.relations)) {
       if (relation.type === 'ManyToMany') {
-        const classA = diagramContent.elements[relation.from]?.name;
-        const classB = diagramContent.elements[relation.to]?.name;
+        const ownerName = diagramContent.elements[relation.from]?.name;
+        const inverseName = diagramContent.elements[relation.to]?.name;
         
-        if (!classA || !classB) continue;
+        if (!ownerName || !inverseName) continue;
         
-        const [first, second] = [classA, classB].sort();
+        const [first, second] = [ownerName, inverseName].sort();
         assignments.push({
+          // Nombres canónicos para nombre de archivo y pantalla
           classA: first,
           classB: second,
-          classAId: relation.from,
-          classBId: relation.to,
+          // Datos de propiedad real
+          ownerName,
+          ownerId: relation.from,
+          inverseName,
+          inverseId: relation.to,
           fileName: this.toSnakeCase(`${first}_${second}_assignment`)
         });
       }
@@ -704,9 +742,27 @@ ${menuItems}
 `;
   }
 
-  private generateModel(classElement: ClassElement, relationships: RelationshipInfo[]): string {
+  private generateModel(
+    classElement: ClassElement,
+    relationships: RelationshipInfo[],
+    diagramContent: DiagramContent
+  ): string {
     const className = classElement.name;
-    const attributes = classElement.attributes;
+    const inheritanceRel = relationships.find(r => r.type === 'Inheritance');
+    const parentAttrs: Attribute[] = inheritanceRel
+      ? (diagramContent.elements[inheritanceRel.targetClassId]?.attributes || [])
+      : [];
+    const ownAttrs: Attribute[] = classElement.attributes || [];
+    // Merge parent + own attributes (parent first), unique by name
+    const seen = new Set<string>();
+    const attributes: Attribute[] = [];
+    for (const a of [...parentAttrs, ...ownAttrs]) {
+      const key = (a.name || '').toLowerCase();
+      if (!key) continue;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      attributes.push(a);
+    }
     
     const fields = attributes.map(attr => {
       const dartType = this.mapJavaToDartType(attr.type);
@@ -717,12 +773,34 @@ ${menuItems}
       .filter(rel => rel.isOwner && (rel.type === 'ManyToOne' || rel.type === 'OneToOne'))
       .map(rel => `  int? ${this.toCamelCase(rel.targetClass)}Id;`)
       .join('\n');
+    // ManyToMany: incluir listas de IDs para ambos lados
+    const mmRels = Object.values(diagramContent.relations)
+      .filter(r => r.type === 'ManyToMany')
+      .filter(r => {
+        const fromName = diagramContent.elements[r.from]?.name;
+        const toName = diagramContent.elements[r.to]?.name;
+        return fromName === className || toName === className;
+      });
+    const mmFields = mmRels
+      .map(r => {
+        const fromName = diagramContent.elements[r.from]?.name;
+        const toName = diagramContent.elements[r.to]?.name;
+        const other = fromName === className ? toName : fromName;
+        return `  List<int>? ${this.toCamelCase(other!)}Ids;`;
+      })
+      .join('\n');
     
     const constructorParams = [
       ...attributes.map(attr => `this.${this.toCamelCase(attr.name)}`),
       ...relationships
         .filter(rel => rel.isOwner && (rel.type === 'ManyToOne' || rel.type === 'OneToOne'))
-        .map(rel => `this.${this.toCamelCase(rel.targetClass)}Id`)
+        .map(rel => `this.${this.toCamelCase(rel.targetClass)}Id`),
+      ...mmRels.map(r => {
+        const fromName = diagramContent.elements[r.from]?.name;
+        const toName = diagramContent.elements[r.to]?.name;
+        const other = fromName === className ? toName : fromName;
+        return `this.${this.toCamelCase(other!)}Ids`;
+      })
     ].join(', ');
     
     const fromJsonFields = [
@@ -736,7 +814,14 @@ ${menuItems}
         .map(rel => {
           const fieldName = `${this.toCamelCase(rel.targetClass)}Id`;
           return `      ${fieldName}: json['${fieldName}'] as int?`;
-        })
+        }),
+      ...mmRels.map(r => {
+        const fromName = diagramContent.elements[r.from]?.name;
+        const toName = diagramContent.elements[r.to]?.name;
+        const other = fromName === className ? toName : fromName;
+        const fieldName = `${this.toCamelCase(other!)}Ids`;
+        return `      ${fieldName}: (json['${fieldName}'] as List?)?.map((e) => e as int).toList()`;
+      })
     ].join(',\n');
     
     const toJsonFields = [
@@ -749,12 +834,20 @@ ${menuItems}
         .map(rel => {
           const fieldName = `${this.toCamelCase(rel.targetClass)}Id`;
           return `      '${fieldName}': ${fieldName}`;
-        })
+        }),
+      ...mmRels.map(r => {
+        const fromName = diagramContent.elements[r.from]?.name;
+        const toName = diagramContent.elements[r.to]?.name;
+        const other = fromName === className ? toName : fromName;
+        const fieldName = `${this.toCamelCase(other!)}Ids`;
+        return `      '${fieldName}': ${fieldName}`;
+      })
     ].join(',\n');
     
     return `class ${className} {
 ${fields}
 ${fkFields}
+${mmFields}
 
   ${className}({${constructorParams}});
 
@@ -942,31 +1035,43 @@ class ${className}Service extends ChangeNotifier {
   }
 
   private generateManyToManyAssignmentForm(assignment: any, diagramContent: DiagramContent): string {
-    // Implementación simplificada para M:M
-    const { classA, classB, classAId, classBId, fileName } = assignment;
-    
+    // Formulario M:M solo del lado dueño, con selección múltiple
+    const { ownerName, inverseName, ownerId, inverseId, fileName } = assignment;
+
     return `import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '/services/${this.toSnakeCase(classA)}_service.dart';
-import '/services/${this.toSnakeCase(classB)}_service.dart';
+import '/services/${this.toSnakeCase(ownerName)}_service.dart';
+import '/services/${this.toSnakeCase(inverseName)}_service.dart';
 
 class ${this.toPascalCase(fileName)}FormScreen extends StatefulWidget {
-  const ${this.toPascalCase(fileName)}FormScreen({super.key});
+  final int? preselectedOwnerId;
+  const ${this.toPascalCase(fileName)}FormScreen({super.key, this.preselectedOwnerId});
 
   @override
   State<${this.toPascalCase(fileName)}FormScreen> createState() => _${this.toPascalCase(fileName)}FormScreenState();
 }
 
 class _${this.toPascalCase(fileName)}FormScreenState extends State<${this.toPascalCase(fileName)}FormScreen> {
-  int? selected${classA}Id;
-  int? selected${classB}Id;
+  int? selectedOwnerId;
+  final Set<int> selected${inverseName}Ids = {};
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await Provider.of<${classA}Service>(context, listen: false).fetchAll();
-      await Provider.of<${classB}Service>(context, listen: false).fetchAll();
+      final ownerSvc = Provider.of<${ownerName}Service>(context, listen: false);
+      final inverseSvc = Provider.of<${inverseName}Service>(context, listen: false);
+      await ownerSvc.fetchAll();
+      await inverseSvc.fetchAll();
+      if (widget.preselectedOwnerId != null) {
+        selectedOwnerId = widget.preselectedOwnerId;
+        final owner = await ownerSvc.fetchById(widget.preselectedOwnerId!);
+        final current = owner?.${this.toCamelCase(inverseName)}Ids ?? <int>[];
+        selected${inverseName}Ids
+          ..clear()
+          ..addAll(current.map((e) => e is int ? e : int.tryParse(e.toString()) ?? 0).where((e) => e != 0));
+      }
+      setState(() {});
     });
   }
 
@@ -974,50 +1079,96 @@ class _${this.toPascalCase(fileName)}FormScreenState extends State<${this.toPasc
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Assign ${classA} to ${classB}'),
+        title: const Text('Asignar ${inverseName} a ${ownerName}'),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            Consumer<${classA}Service>(
+            // Dueño (solo habilitado si no viene preseleccionado)
+            Consumer<${ownerName}Service>(
               builder: (context, service, _) {
                 return DropdownButtonFormField<int>(
-                  value: selected${classA}Id,
-                  decoration: const InputDecoration(labelText: 'Select ${classA}'),
+                  value: selectedOwnerId,
+                  decoration: InputDecoration(
+                    labelText: 'Selecciona ${ownerName}',
+                    border: const OutlineInputBorder(),
+                  ),
                   items: service.items.map((item) {
                     return DropdownMenuItem(
                       value: item.id,
-                      child: Text('\${item.id}'),
+                      child: Text('#\${item.id}'),
                     );
                   }).toList(),
-                  onChanged: (value) => setState(() => selected${classA}Id = value),
+                  onChanged: widget.preselectedOwnerId != null ? null : (value) async {
+                    setState(() { selectedOwnerId = value; });
+                    if (value != null) {
+                      final owner = await Provider.of<${ownerName}Service>(context, listen: false).fetchById(value);
+                      final current = owner?.${this.toCamelCase(inverseName)}Ids ?? <int>[];
+                      setState(() {
+                        selected${inverseName}Ids
+                          ..clear()
+                          ..addAll(current.map((e) => e is int ? e : int.tryParse(e.toString()) ?? 0).where((e) => e != 0));
+                      });
+                    }
+                  },
                 );
               },
             ),
             const SizedBox(height: 16),
-            Consumer<${classB}Service>(
-              builder: (context, service, _) {
-                return DropdownButtonFormField<int>(
-                  value: selected${classB}Id,
-                  decoration: const InputDecoration(labelText: 'Select ${classB}'),
-                  items: service.items.map((item) {
-                    return DropdownMenuItem(
-                      value: item.id,
-                      child: Text('\${item.id}'),
-                    );
-                  }).toList(),
-                  onChanged: (value) => setState(() => selected${classB}Id = value),
-                );
-              },
+            // Lista múltiple del inverso
+            Expanded(
+              child: Consumer<${inverseName}Service>(
+                builder: (context, service, _) {
+                  if (service.items.isEmpty) {
+                    return const Center(child: Text('No hay elementos para asignar'));
+                  }
+                  return ListView.separated(
+                    itemCount: service.items.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final target = service.items[index];
+                      final tid = target.id as int;
+                      final checked = selected${inverseName}Ids.contains(tid);
+                      return CheckboxListTile(
+                        value: checked,
+                        title: Text('${inverseName} #\${tid}'),
+                        onChanged: (val) {
+                          setState(() {
+                            if (val == true) {
+                              selected${inverseName}Ids.add(tid);
+                            } else {
+                              selected${inverseName}Ids.remove(tid);
+                            }
+                          });
+                        },
+                      );
+                    },
+                  );
+                },
+              ),
             ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: () {
-                // TODO: Implement M:M assignment logic
-                Navigator.pop(context);
-              },
-              child: const Text('Create Assignment'),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.save),
+                label: const Text('Guardar asignación'),
+                onPressed: () async {
+                  if (selectedOwnerId == null) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Selecciona el elemento dueño')),
+                    );
+                    return;
+                  }
+                  final ownerSvc = Provider.of<${ownerName}Service>(context, listen: false);
+                  final owner = await ownerSvc.fetchById(selectedOwnerId!);
+                  if (owner == null) return;
+                  owner.${this.toCamelCase(inverseName)}Ids = selected${inverseName}Ids.toList();
+                  await ownerSvc.update(selectedOwnerId!, owner);
+                  if (mounted) Navigator.pop(context);
+                },
+              ),
             ),
           ],
         ),

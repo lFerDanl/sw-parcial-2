@@ -218,7 +218,7 @@ ${this.generateFKServiceLoads(relationships)}
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-${this.generateCardDisplayFields(classElement)}
+${this.generateCardDisplayFields(classElement, relationships, diagramContent)}
                       ],
                     ),
                   ),
@@ -235,6 +235,19 @@ ${this.generateCardDisplayFields(classElement)}
                           ],
                         ),
                       ),
+${relationships.filter(r => r.type === 'ManyToMany' && r.isOwner).map(rel => {
+  const target = rel.targetClass;
+  return `                      PopupMenuItem(
+                        value: 'assign_${target}',
+                        child: Row(
+                          children: const [
+                            Icon(Icons.link, size: 20),
+                            SizedBox(width: 12),
+                            Text('Asignar ${target}'),
+                          ],
+                        ),
+                      ),`;
+}).join('\n')}
                       const PopupMenuItem(
                         value: 'delete',
                         child: Row(
@@ -251,6 +264,19 @@ ${this.generateCardDisplayFields(classElement)}
                         _openFormDialog(context, item: item);
                       } else if (value == 'delete') {
                         _confirmDelete(context, item, service);
+${relationships.filter(r => r.type === 'ManyToMany' && r.isOwner).map(rel => {
+  const target = rel.targetClass;
+  const [first, second] = [className, target].sort();
+  const screenClass = this.toPascalCase(`${first}_${second}_assignment`) + 'FormScreen';
+  const preselectedProp = `preselectedOwnerId`;
+  return `                       } else if (value == 'assign_${target}') {
+                         Navigator.push(
+                           context,
+                           MaterialPageRoute(
+                             builder: (_) => ${screenClass}(${preselectedProp}: item.${this.getIdField(classElement)}),
+                           ),
+                         );`;
+}).join('\n')}
                       }
                     },
                   ),
@@ -339,7 +365,7 @@ class _${className}FormDialogState extends State<_${className}FormDialog> {
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
 
-${this.generateControllers(classElement)}
+${this.generateControllers(classElement, relationships, diagramContent)}
 ${this.generateFKDropdownStates(relationships)}
 
   @override
@@ -352,13 +378,13 @@ ${this.generateFKDropdownStates(relationships)}
 
   @override
   void dispose() {
-${this.generateDisposeControllers(classElement)}
+${this.generateDisposeControllers(classElement, relationships, diagramContent)}
     super.dispose();
   }
 
   void _loadExistingData() {
     final item = widget.item!;
-${this.generateLoadExistingData(classElement, relationships)}
+${this.generateLoadExistingData(classElement, relationships, diagramContent)}
   }
 
   @override
@@ -469,7 +495,7 @@ ${this.generateFormFields(classElement, relationships, diagramContent)}
     final service = Provider.of<${className}Service>(context, listen: false);
     
     final data = ${className}(
-${this.generateSaveDataMapping(classElement, relationships)}
+${this.generateSaveDataMapping(classElement, relationships, diagramContent)}
     );
 
     bool success;
@@ -525,12 +551,47 @@ ${this.generateSaveDataMapping(classElement, relationships)}
         imports.push(`import '/services/${this.toSnakeCase(rel.targetClass)}_service.dart';`);
       }
     }
+    // Formularios de asignación M:M solo del lado dueño
+    for (const rel of relationships) {
+      if (rel.type === 'ManyToMany' && rel.isOwner) {
+        const [first, second] = [className, rel.targetClass].sort();
+        const fileName = this.toSnakeCase(`${first}_${second}_assignment`);
+        imports.push(`import '/screens/forms/${fileName}_form.dart';`);
+      }
+    }
     
     return [...new Set(imports)].join('\n');
   }
 
-  private static generateControllers(classElement: ClassElement): string {
-    return classElement.attributes
+  private static getMergedAttributes(
+    classElement: ClassElement,
+    relationships: RelationshipInfo[],
+    diagramContent: DiagramContent
+  ): Attribute[] {
+    const inheritanceRel = relationships.find(r => r.type === 'Inheritance');
+    const parentAttrs: Attribute[] = inheritanceRel
+      ? (diagramContent.elements[inheritanceRel.targetClassId]?.attributes || [])
+      : [];
+    const ownAttrs: Attribute[] = classElement.attributes || [];
+    const seen = new Set<string>();
+    const merged: Attribute[] = [];
+    for (const a of [...parentAttrs, ...ownAttrs]) {
+      const key = (a.name || '').toLowerCase();
+      if (!key) continue;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(a);
+    }
+    return merged;
+  }
+
+  private static generateControllers(
+    classElement: ClassElement,
+    relationships: RelationshipInfo[],
+    diagramContent: DiagramContent
+  ): string {
+    const attrs = this.getMergedAttributes(classElement, relationships, diagramContent);
+    return attrs
       .filter(attr => attr.name !== 'id' && attr.name.toLowerCase() !== 'id')
       .map(attr => `  final ${this.toCamelCase(attr.name)}Controller = TextEditingController();`)
       .join('\n');
@@ -546,8 +607,13 @@ ${this.generateSaveDataMapping(classElement, relationships)}
       .join('\n');
   }
 
-  private static generateDisposeControllers(classElement: ClassElement): string {
-    return classElement.attributes
+  private static generateDisposeControllers(
+    classElement: ClassElement,
+    relationships: RelationshipInfo[],
+    diagramContent: DiagramContent
+  ): string {
+    const attrs = this.getMergedAttributes(classElement, relationships, diagramContent);
+    return attrs
       .filter(attr => attr.name !== 'id' && attr.name.toLowerCase() !== 'id')
       .map(attr => `    ${this.toCamelCase(attr.name)}Controller.dispose();`)
       .join('\n');
@@ -555,11 +621,12 @@ ${this.generateSaveDataMapping(classElement, relationships)}
 
   private static generateLoadExistingData(
     classElement: ClassElement,
-    relationships: RelationshipInfo[]
+    relationships: RelationshipInfo[],
+    diagramContent: DiagramContent
   ): string {
     const loads: string[] = [];
-    
-    for (const attr of classElement.attributes) {
+    const attrs = this.getMergedAttributes(classElement, relationships, diagramContent);
+    for (const attr of attrs) {
       if (attr.name === 'id' || attr.name.toLowerCase() === 'id') continue;
       const fieldName = this.toCamelCase(attr.name);
       loads.push(`    ${fieldName}Controller.text = item.${fieldName}?.toString() ?? '';`);
@@ -582,9 +649,9 @@ ${this.generateSaveDataMapping(classElement, relationships)}
     diagramContent: DiagramContent
   ): string {
     const fields: string[] = [];
-    
+    const attrs = this.getMergedAttributes(classElement, relationships, diagramContent);
     // Campos normales
-    for (const attr of classElement.attributes) {
+    for (const attr of attrs) {
       if (attr.name === 'id' || attr.name.toLowerCase() === 'id') continue;
       
       const fieldName = this.toCamelCase(attr.name);
@@ -680,11 +747,12 @@ ${this.generateSaveDataMapping(classElement, relationships)}
 
   private static generateSaveDataMapping(
     classElement: ClassElement,
-    relationships: RelationshipInfo[]
+    relationships: RelationshipInfo[],
+    diagramContent: DiagramContent
   ): string {
     const mappings: string[] = [];
-    
-    for (const attr of classElement.attributes) {
+    const attrs = this.getMergedAttributes(classElement, relationships, diagramContent);
+    for (const attr of attrs) {
       if (attr.name === 'id' || attr.name.toLowerCase() === 'id') continue;
       const fieldName = this.toCamelCase(attr.name);
       const dartType = this.mapJavaToDartType(attr.type);
@@ -709,8 +777,13 @@ ${this.generateSaveDataMapping(classElement, relationships)}
     return mappings.join(',\n');
   }
 
-  private static generateCardDisplayFields(classElement: ClassElement): string {
-    const displayAttrs = classElement.attributes
+  private static generateCardDisplayFields(
+    classElement: ClassElement,
+    relationships: RelationshipInfo[],
+    diagramContent: DiagramContent
+  ): string {
+    const attrs = this.getMergedAttributes(classElement, relationships, diagramContent);
+    const displayAttrs = attrs
       .filter(attr => attr.name !== 'id' && attr.name.toLowerCase() !== 'id')
       .slice(0, 3);
     
@@ -771,6 +844,10 @@ ${this.generateSaveDataMapping(classElement, relationships)}
   // Utilidades de conversión de nombres
   private static toSnakeCase(str: string): string {
     return str.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
+  }
+
+  private static toPascalCase(str: string): string {
+    return str.replace(/(^|_)([a-z])/g, (_m, _p, c) => c.toUpperCase()).replace(/_/g, '');
   }
 
   private static toCamelCase(str: string): string {

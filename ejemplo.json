@@ -3,8 +3,8 @@
     "class_1762721200540": {
       "name": "Usuario",
       "position": {
-        "x": 140,
-        "y": 340
+        "x": 30,
+        "y": 280
       },
       "attributes": [
         {
@@ -28,8 +28,8 @@
     "class_1762721201324": {
       "name": "Libro",
       "position": {
-        "x": 550,
-        "y": 340
+        "x": 580,
+        "y": 280
       },
       "attributes": [
         {
@@ -49,12 +49,230 @@
           "type": "String"
         }
       ]
+    },
+    "class_1762899183146": {
+      "name": "Copias",
+      "position": {
+        "x": 580,
+        "y": 530
+      },
+      "attributes": [
+        {
+          "name": "id",
+          "type": "Long"
+        },
+        {
+          "name": "nombre",
+          "type": "String"
+        }
+      ]
+    },
+    "class_1762911362711": {
+      "name": "Editorial",
+      "position": {
+        "x": 800,
+        "y": 120
+      },
+      "attributes": [
+        {
+          "name": "id",
+          "type": "Long"
+        },
+        {
+          "name": "nombre",
+          "type": "String"
+        },
+        {
+          "name": "direccion",
+          "type": "String"
+        }
+      ]
+    },
+    "class_1762911717694": {
+      "name": "Estudiante",
+      "position": {
+        "x": 300,
+        "y": 300
+      },
+      "attributes": [
+        {
+          "name": "registro",
+          "type": "String"
+        },
+        {
+          "name": "direccion",
+          "type": "String"
+        }
+      ]
+    },
+    "class_1762916340536": {
+      "name": "PortadaDigital",
+      "position": {
+        "x": 830,
+        "y": 290
+      },
+      "attributes": [
+        {
+          "name": "id",
+          "type": "Long"
+        },
+        {
+          "name": "url",
+          "type": "String"
+        },
+        {
+          "name": "formato",
+          "type": "String"
+        }
+      ]
+    },
+    "class_1762918024340": {
+      "name": "Categoria",
+      "position": {
+        "x": 420,
+        "y": 80
+      },
+      "attributes": [
+        {
+          "name": "id",
+          "type": "Long"
+        },
+        {
+          "name": "nombre",
+          "type": "String"
+        }
+      ]
     }
   },
   "relations": {
-    "32156b99-3b6b-4554-b174-d3d06c4a2cd5": {
+    "3be848d5-514b-4e6e-a98c-101597b9ca95": {
+      "to": "class_1762911362711",
+      "from": "class_1762721201324",
+      "type": "Aggregation",
+      "attrs": {
+        "line": {
+          "stroke": "#65a30d",
+          "strokeWidth": 2,
+          "sourceMarker": {
+            "d": "M 0 5 L 5 0 L 10 5 L 5 10 z",
+            "fill": "white",
+            "type": "path",
+            "stroke": "#65a30d",
+            "strokeWidth": 2
+          },
+          "targetMarker": {
+            "d": "M 10 0 L 0 5 L 10 10 z",
+            "fill": "#65a30d",
+            "type": "path"
+          },
+          "strokeDasharray": "none"
+        }
+      },
+      "labels": [
+        {
+          "attrs": {
+            "text": {
+              "fill": "#333",
+              "text": "Aggregation",
+              "fontSize": 12
+            }
+          },
+          "position": 0.5
+        }
+      ],
+      "router": {
+        "name": "manhattan"
+      },
+      "vertices": [],
+      "connector": {
+        "name": "rounded"
+      }
+    },
+    "b89a9859-94cb-4b1c-a2a4-d5f15b9b6d6a": {
+      "to": "class_1762916340536",
+      "from": "class_1762721201324",
+      "type": "OneToOne",
+      "attrs": {
+        "line": {
+          "stroke": "#2563eb",
+          "strokeWidth": 2,
+          "sourceMarker": {
+            "d": "M 0 0",
+            "fill": "none",
+            "type": "path"
+          },
+          "targetMarker": {
+            "d": "M 10 0 L 0 5 L 10 10 z",
+            "fill": "#2563eb",
+            "type": "path"
+          },
+          "strokeDasharray": "none"
+        }
+      },
+      "labels": [
+        {
+          "attrs": {
+            "text": {
+              "fill": "#333",
+              "text": "OneToOne",
+              "fontSize": 12
+            }
+          },
+          "position": 0.5
+        }
+      ],
+      "router": {
+        "name": "manhattan"
+      },
+      "vertices": [],
+      "connector": {
+        "name": "rounded"
+      }
+    },
+    "bf0083d5-5a00-4eb6-b6a8-a5b029de2786": {
+      "to": "class_1762899183146",
+      "from": "class_1762721201324",
+      "type": "Composition",
+      "attrs": {
+        "line": {
+          "stroke": "#0891b2",
+          "strokeWidth": 2,
+          "sourceMarker": {
+            "d": "M 0 5 L 5 0 L 10 5 L 5 10 z",
+            "fill": "#0891b2",
+            "type": "path"
+          },
+          "targetMarker": {
+            "d": "M 10 0 L 0 5 L 10 10 z",
+            "fill": "#0891b2",
+            "type": "path"
+          },
+          "strokeDasharray": "none"
+        }
+      },
+      "labels": [
+        {
+          "attrs": {
+            "text": {
+              "fill": "#333",
+              "text": "Composition",
+              "fontSize": 12
+            }
+          },
+          "position": 0.5
+        }
+      ],
+      "router": {
+        "name": "manhattan"
+      },
+      "vertices": [],
+      "connector": {
+        "name": "rounded"
+      }
+    },
+    "e4e77f14-7d75-4540-b1ac-c1abca027ea1": {
       "to": "class_1762721201324",
-      "from": "class_1762721200540",
+      "from": "class_1762911717694",
       "type": "OneToMany",
       "attrs": {
         "line": {
@@ -76,6 +294,90 @@
       "labels": [
         {
           "text": "OneToMany",
+          "position": 0.5
+        }
+      ],
+      "router": {
+        "name": "manhattan"
+      },
+      "vertices": [],
+      "connector": {
+        "name": "rounded"
+      }
+    },
+    "e7136cbd-68fb-47d6-9da2-415ebb4383e6": {
+      "to": "class_1762918024340",
+      "from": "class_1762721201324",
+      "type": "ManyToMany",
+      "attrs": {
+        "line": {
+          "stroke": "#7c3aed",
+          "strokeWidth": 2,
+          "sourceMarker": {
+            "d": "M 10 0 L 0 5 L 10 10 L 15 5 L 10 0",
+            "fill": "#7c3aed",
+            "type": "path"
+          },
+          "targetMarker": {
+            "d": "M 10 0 L 0 5 L 10 10 L 15 5 L 10 0",
+            "fill": "#7c3aed",
+            "type": "path"
+          },
+          "strokeDasharray": "none"
+        }
+      },
+      "labels": [
+        {
+          "attrs": {
+            "text": {
+              "fill": "#333",
+              "text": "ManyToMany",
+              "fontSize": 12
+            }
+          },
+          "position": 0.5
+        }
+      ],
+      "router": {
+        "name": "manhattan"
+      },
+      "vertices": [],
+      "connector": {
+        "name": "rounded"
+      }
+    },
+    "ebe2b84b-fb6f-41ad-bfb5-b700fc905375": {
+      "to": "class_1762721200540",
+      "from": "class_1762911717694",
+      "type": "Inheritance",
+      "attrs": {
+        "line": {
+          "stroke": "#059669",
+          "strokeWidth": 2,
+          "sourceMarker": {
+            "d": "M 0 0",
+            "fill": "none",
+            "type": "path"
+          },
+          "targetMarker": {
+            "d": "M 0 0 L 10 5 L 0 10 z",
+            "fill": "white",
+            "type": "path",
+            "stroke": "#059669",
+            "strokeWidth": 2
+          },
+          "strokeDasharray": "none"
+        }
+      },
+      "labels": [
+        {
+          "attrs": {
+            "text": {
+              "fill": "#333",
+              "text": "Inheritance",
+              "fontSize": 12
+            }
+          },
           "position": 0.5
         }
       ],
